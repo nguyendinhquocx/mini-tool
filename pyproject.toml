@@ -35,3 +35,6 @@ target-version = ['py311']
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

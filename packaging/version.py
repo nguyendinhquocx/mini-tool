@@ -6,9 +6,9 @@ __description__ = "Vietnamese file rename tool với desktop GUI"
 __author__ = "File Rename Tool Team"
 __copyright__ = "2025 File Rename Tool Team"
 
-# Build metadata
-BUILD_DATE = "2025-08-30T19:31:33.535225"  # Will be populated during build
-BUILD_COMMIT = "90244a2"  # Will be populated during build
+# Build metadata - populated during build process
+BUILD_DATE = None
+BUILD_COMMIT = None
 BUILD_VERSION = __version__
 
 # Application metadata for PyInstaller

@@ -59,7 +59,8 @@
       "Bash(venv/Scripts/pyinstaller --onefile --name FileRenameTool --noconsole file.py)",
       "Bash(dist/FileRenameTool.exe:*)",
       "Bash(make:*)",
-      "Bash(scripts/build.bat)"
+      "Bash(scripts/build.bat)",
+      "Bash(venv/Scripts/pytest.exe tests/ -v)"
     ],
     "deny": [],
     "ask": [],

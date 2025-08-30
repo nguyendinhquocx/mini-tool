@@ -24,31 +24,48 @@ def clean_build_directories():
             print(f"Cleaning {dir_name}/ directory...")
             shutil.rmtree(dir_name)
             
+def get_git_commit_hash():
+    """Get current git commit hash"""
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return 'unknown'
+
 def update_version_info():
     """Update build metadata in version.py"""
     version_file = os.path.join(os.path.dirname(__file__), 'version.py')
     
-    # Get git commit hash if available
-    try:
-        commit_hash = subprocess.check_output(
-            ['git', 'rev-parse', '--short', 'HEAD'], 
-            stderr=subprocess.DEVNULL
-        ).decode('utf-8').strip()
-    except:
-        commit_hash = 'unknown'
+    if not os.path.exists(version_file):
+        raise FileNotFoundError(f"Version file not found: {version_file}")
     
+    commit_hash = get_git_commit_hash()
     build_date = datetime.now().isoformat()
     
     # Read current version file
-    with open(version_file, 'r') as f:
+    with open(version_file, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    # Update build metadata
-    content = content.replace('BUILD_DATE = None', f'BUILD_DATE = "{build_date}"')
-    content = content.replace('BUILD_COMMIT = None', f'BUILD_COMMIT = "{commit_hash}"')
+    # Update build metadata - handle both None and existing values
+    import re
+    content = re.sub(
+        r'BUILD_DATE = .*',
+        f'BUILD_DATE = "{build_date}"',
+        content
+    )
+    content = re.sub(
+        r'BUILD_COMMIT = .*',
+        f'BUILD_COMMIT = "{commit_hash}"',
+        content
+    )
     
     # Write updated version file
-    with open(version_file, 'w') as f:
+    with open(version_file, 'w', encoding='utf-8') as f:
         f.write(content)
         
     print(f"Updated build metadata: {commit_hash} at {build_date}")
@@ -97,40 +114,72 @@ VSVersionInfo(
 
 def run_pyinstaller(onefile=True):
     """Run PyInstaller với appropriate options"""
-    spec_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'file-rename-tool.spec')
+    project_root = os.path.dirname(os.path.dirname(__file__))
+    spec_file = os.path.join(project_root, 'file-rename-tool.spec')
+    
+    if not os.path.exists(spec_file):
+        raise FileNotFoundError(f"PyInstaller spec file not found: {spec_file}")
     
     # Use correct pyinstaller path from venv
-    venv_pyinstaller = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'venv', 'Scripts', 'pyinstaller.exe')
-    cmd = [venv_pyinstaller]
+    venv_pyinstaller = os.path.join(project_root, 'venv', 'Scripts', 'pyinstaller.exe')
+    if not os.path.exists(venv_pyinstaller):
+        # Fallback to system pyinstaller
+        venv_pyinstaller = 'pyinstaller'
     
-    # When using spec file, don't add onefile option as it's already in spec
-    cmd.extend([
-        '--clean',
-        '--noconfirm',  
-        spec_file
-    ])
+    cmd = [venv_pyinstaller, '--clean', '--noconfirm', spec_file]
     
     print(f"Running PyInstaller: {' '.join(cmd)}")
     
     try:
-        result = subprocess.run(cmd, check=True, cwd=os.path.dirname(os.path.dirname(__file__)))
+        result = subprocess.run(
+            cmd, 
+            check=True, 
+            cwd=project_root,
+            capture_output=True,
+            text=True
+        )
+        print("PyInstaller completed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"PyInstaller failed with error: {e}")
+        print(f"PyInstaller failed with error code {e.returncode}")
+        print(f"stdout: {e.stdout}")
+        print(f"stderr: {e.stderr}")
+        return False
+    except FileNotFoundError as e:
+        print(f"PyInstaller executable not found: {e}")
         return False
 
 def validate_executable():
     """Check if executable was created successfully"""
-    dist_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dist')
+    project_root = os.path.dirname(os.path.dirname(__file__))
+    dist_dir = os.path.join(project_root, 'dist')
     exe_path = os.path.join(dist_dir, f'{APP_NAME}.exe')
+    
+    if not os.path.exists(dist_dir):
+        print("[FAIL] dist/ directory not found")
+        return False
     
     if os.path.exists(exe_path):
         file_size = os.path.getsize(exe_path) / (1024 * 1024)  # MB
         print(f"[OK] Executable created: {exe_path}")
         print(f"[OK] File size: {file_size:.1f} MB")
+        
+        # Additional validation
+        if file_size < 1.0:
+            print("[WARNING] Executable size seems too small (< 1MB)")
+        elif file_size > 100.0:
+            print("[WARNING] Executable size seems large (> 100MB)")
+        
         return True
     else:
         print("[FAIL] Executable not found in dist/ directory")
+        print(f"Expected: {exe_path}")
+        # List what's actually in dist/
+        try:
+            dist_contents = os.listdir(dist_dir)
+            print(f"dist/ contains: {dist_contents}")
+        except OSError:
+            pass
         return False
 
 def main():
