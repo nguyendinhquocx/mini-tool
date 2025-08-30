@@ -1,0 +1,27 @@
+{
+  "commands": {
+    "expert": {
+      "description": "Consult with specialized experts",
+      "parameters": [
+        {
+          "name": "expert_file",
+          "type": "file",
+          "source": ".expert/*.md",
+          "required": true,
+          "description": "Expert filename from .expert directory"
+        },
+        {
+          "name": "question", 
+          "type": "string",
+          "required": false,
+          "description": "Optional question for quick consultation"
+        }
+      ],
+      "examples": [
+        "/expert \"Chuyên gia thiết kế toàn cục.md\"",
+        "/expert \"Chuyên gia bảo mật.md\" \"Review authentication security\"",
+        "/expert \"Chuyên gia tối ưu.md\" \"Performance optimization suggestions\""
+      ]
+    }
+  }
+}
