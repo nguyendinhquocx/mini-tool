@@ -60,7 +60,11 @@
       "Bash(dist/FileRenameTool.exe:*)",
       "Bash(make:*)",
       "Bash(scripts/build.bat)",
-      "Bash(venv/Scripts/pytest.exe tests/ -v)"
+      "Bash(venv/Scripts/pytest.exe tests/ -v)",
+      "Bash(del:*)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_main_window.py -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_file_preview.py -v)",
+      "Bash(venv/Scripts/pytest.exe tests/integration/ -v)"
     ],
     "deny": [],
     "ask": [],
