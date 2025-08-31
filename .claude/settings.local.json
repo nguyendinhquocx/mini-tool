@@ -75,7 +75,12 @@
       "Bash(venv/Scripts/pytest.exe tests/integration/test_file_operations_integration.py -v)",
       "Bash(venv/Scripts/pytest.exe tests/unit/test_batch_operations.py -v --tb=short)",
       "Bash(venv/Scripts/pytest.exe tests/integration/test_full_workflow.py -v --tb=short)",
-      "Bash(venv/Scripts/pytest.exe tests/unit/test_batch_operations.py::TestBatchOperationService::test_service_initialization -v)"
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_batch_operations.py::TestBatchOperationService::test_service_initialization -v)",
+      "Bash(venvScriptspython.exe packaging/build.py --onefile --clean)",
+      "Bash(venv/Scripts/pyinstaller.exe --onefile --name FileRenameTool --noconsole file.py)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_file_preview.py -v --tb=short)",
+      "Bash(venvScriptspytest.exe tests/unit/test_file_preview.py -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_progress_dialog_cancellation.py -v --tb=short)"
     ],
     "deny": [],
     "ask": [],

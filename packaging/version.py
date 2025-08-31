@@ -7,8 +7,8 @@ __author__ = "File Rename Tool Team"
 __copyright__ = "2025 File Rename Tool Team"
 
 # Build metadata - populated during build process
-BUILD_DATE = None
-BUILD_COMMIT = None
+BUILD_DATE = "2025-08-31T13:58:35.607219"
+BUILD_COMMIT = "12ca2fb"
 BUILD_VERSION = __version__
 
 # Application metadata for PyInstaller

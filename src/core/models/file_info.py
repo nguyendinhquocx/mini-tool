@@ -151,10 +151,19 @@ class FileInfo:
 class RenamePreview:
     """
     Preview of file rename operation showing before/after states
+    Enhanced for two-column preview display with selection and conflict detection
     """
+    # Core file data
+    file_id: str
     file_info: FileInfo
     normalized_name: str
     normalized_full_path: str
+    
+    # Preview display state
+    is_selected: bool = True
+    has_conflict: bool = False
+    is_unchanged: bool = False
+    conflict_type: Optional[str] = None  # 'duplicate', 'invalid_chars'
     
     # Preview details
     changes_made: List[str] = field(default_factory=list)
@@ -216,6 +225,25 @@ class RenamePreview:
             'operation_id': self.operation_id,
             'created_at': self.created_at.isoformat()
         }
+
+
+@dataclass
+class FilePreviewState:
+    """
+    State management for file preview display with selection tracking
+    """
+    total_files: int = 0
+    selected_files: int = 0
+    unchanged_files: int = 0
+    conflict_files: int = 0
+    is_loading: bool = False
+    
+    def update_counts(self, preview_list: List['RenamePreview']):
+        """Update counts based on preview list"""
+        self.total_files = len(preview_list)
+        self.selected_files = sum(1 for p in preview_list if p.is_selected)
+        self.unchanged_files = sum(1 for p in preview_list if p.is_unchanged)
+        self.conflict_files = sum(1 for p in preview_list if p.has_conflict)
 
 
 @dataclass

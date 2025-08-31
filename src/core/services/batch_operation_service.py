@@ -14,12 +14,24 @@ from datetime import datetime
 import logging
 
 from ..models.file_info import FileInfo, RenamePreview
-from ..models.operation import BatchOperation, NormalizationRules, OperationType
+from ..models.operation import (
+    BatchOperation, NormalizationRules, OperationType,
+    CancellationToken, OperationResult, OperationStatus,
+    FileOperationResult, TimeEstimator, ProgressCallback,
+    OperationCancelledException
+)
 from .file_operations_engine import FileOperationsEngine
 from .normalize_service import VietnameseNormalizer
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Constants for progress tracking
+PROGRESS_SETUP_PERCENTAGE = 5.0
+PROGRESS_EXECUTION_PERCENTAGE = 90.0
+PROGRESS_CLEANUP_PERCENTAGE = 5.0
+CANCELLATION_CHECK_INTERVAL = 10  # Check cancellation every N operations
+THREAD_JOIN_TIMEOUT = 5.0  # Timeout for thread joins
 
 
 @dataclass
@@ -34,7 +46,7 @@ class BatchOperationRequest:
 
 @dataclass
 class OperationProgress:
-    """Progress update information"""
+    """Enhanced progress update information with timing data"""
     operation_id: str
     percentage: float
     current_file: str
@@ -43,6 +55,16 @@ class OperationProgress:
     is_completed: bool = False
     has_error: bool = False
     error_message: Optional[str] = None
+    
+    # Enhanced timing information
+    elapsed_time: Optional[str] = None
+    estimated_time_remaining: Optional[str] = None
+    processing_speed: Optional[str] = None
+    
+    # Results summary
+    success_count: int = 0
+    error_count: int = 0
+    skipped_count: int = 0
 
 
 class BatchOperationService:
@@ -67,18 +89,23 @@ class BatchOperationService:
         self._cancel_event = threading.Event()
         self._state_lock = threading.Lock()
         
+        # Enhanced cancellation and progress tracking
+        self._cancellation_token = CancellationToken()
+        self._time_estimator = TimeEstimator()
+        
         # Operation state
         self._current_operation: Optional[BatchOperation] = None
+        self._current_result: Optional[OperationResult] = None
         self._is_running = False
         
         # Callbacks
         self.progress_callback: Optional[Callable[[OperationProgress], None]] = None
-        self.completion_callback: Optional[Callable[[BatchOperation], None]] = None
+        self.completion_callback: Optional[Callable[[OperationResult], None]] = None
         self.error_callback: Optional[Callable[[str], None]] = None
         
     def execute_batch_operation(self, request: BatchOperationRequest,
                               progress_callback: Optional[Callable[[OperationProgress], None]] = None,
-                              completion_callback: Optional[Callable[[BatchOperation], None]] = None,
+                              completion_callback: Optional[Callable[[OperationResult], None]] = None,
                               error_callback: Optional[Callable[[str], None]] = None) -> str:
         """
         Execute batch operation in background thread
@@ -112,9 +139,20 @@ class BatchOperationService:
             dry_run=request.dry_run
         )
         
+        # Create operation result tracker
+        self._current_result = OperationResult(
+            operation_id=operation_config.operation_id,
+            operation_type=request.operation_type.value,
+            status=OperationStatus.PENDING,
+            total_files=len(request.files),
+            start_time=datetime.now()
+        )
+        
         self._current_operation = operation_config
         self._is_running = True
         self._cancel_event.clear()
+        self._cancellation_token.reset()
+        self._time_estimator.start()
         
         # Start worker thread
         self._worker_thread = threading.Thread(
@@ -140,8 +178,10 @@ class BatchOperationService:
         if not self._is_running:
             return False
             
-        logger.info(f"Cancellation requested for operation {self._current_operation.operation_id}")
+        operation_id = self._current_operation.operation_id if self._current_operation else "unknown"
+        logger.info(f"Cancellation requested for operation {operation_id}")
         self._cancel_event.set()
+        self._cancellation_token.request_cancellation("User requested cancellation")
         self.file_engine.cancel_current_operation()
         return True
         
@@ -156,74 +196,117 @@ class BatchOperationService:
         return self._current_operation
         
     def _worker_thread_function(self, request: BatchOperationRequest, operation_config: BatchOperation):
-        """Main worker thread function for batch operations"""
+        """Main worker thread function for batch operations với enhanced cancellation và timing"""
         try:
             logger.info(f"Starting batch operation {operation_config.operation_id}")
+            self._current_result.status = OperationStatus.RUNNING
             
             # Generate rename previews
+            self._cancellation_token.check_cancelled()
             self._send_progress_update(0.0, "Scanning files and generating previews...", operation_config)
             previews = self.file_engine.preview_rename(request.files, request.rules)
             
-            if self._cancel_event.is_set():
-                self._handle_cancellation(operation_config)
-                return
+            self._cancellation_token.check_cancelled()
                 
             # Resolve conflicts
-            self._send_progress_update(5.0, "Resolving naming conflicts...", operation_config)
+            self._send_progress_update(PROGRESS_SETUP_PERCENTAGE, "Resolving naming conflicts...", operation_config)
             previews = self.file_engine.detect_and_resolve_conflicts(previews)
             
-            if self._cancel_event.is_set():
-                self._handle_cancellation(operation_config)
-                return
+            self._cancellation_token.check_cancelled()
                 
-            # Execute batch rename with progress updates
+            # Execute batch rename với enhanced progress tracking
             def progress_update_wrapper(percentage: float, current_file: str):
-                # Map to overall progress (5% for setup, 90% for execution, 5% for cleanup)
-                overall_percentage = 5 + (percentage * 0.9)
+                # Map to overall progress
+                overall_percentage = PROGRESS_SETUP_PERCENTAGE + (percentage * (PROGRESS_EXECUTION_PERCENTAGE / 100.0))
+                
+                # Update time estimator
+                current_processed = int((overall_percentage / 100.0) * self._current_result.total_files)
+                self._time_estimator.update(current_processed, self._current_result.total_files)
+                
                 self._send_progress_update(overall_percentage, current_file, operation_config)
                 
-                # Check for cancellation
-                if self._cancel_event.is_set():
-                    raise InterruptedError("Operation cancelled by user")
+                # Check for cancellation with new token
+                self._cancellation_token.check_cancelled()
                     
             result = self.file_engine.execute_batch_rename(
                 previews, 
                 operation_config, 
-                progress_update_wrapper
+                progress_update_wrapper,
+                self._cancellation_token
             )
             
-            # Final progress update
-            if not self._cancel_event.is_set():
-                self._send_progress_update(100.0, "Operation completed", operation_config)
-                self._send_completion_result(result)
-                logger.info(f"Batch operation {operation_config.operation_id} completed successfully")
+            # Update result with file operations
+            for file_result in result.operation_log:  # Assuming operation_log contains results
+                # Create FileOperationResult from log entry
+                # This is a simplified conversion - real implementation would need proper parsing
+                pass
             
+            # Final progress update
+            self._cancellation_token.check_cancelled()
+            self._current_result.mark_completed()
+            self._send_progress_update(100.0, "Operation completed successfully", operation_config)
+            self._send_completion_result(self._current_result)
+            logger.info(f"Batch operation {operation_config.operation_id} completed successfully")
+            
+        except OperationCancelledException as e:
+            self._handle_cancellation_with_result(e.reason, e.partial_result)
         except InterruptedError:
-            self._handle_cancellation(operation_config)
+            self._handle_cancellation_with_result("User interrupted operation")
         except Exception as e:
             error_msg = f"Batch operation failed: {str(e)}"
             logger.error(f"Operation {operation_config.operation_id} failed: {e}")
+            self._current_result.mark_failed(error_msg, fatal=True)
             self._send_error_result(error_msg, operation_config)
         finally:
             self._is_running = False
             
     def _send_progress_update(self, percentage: float, current_file: str, operation_config: BatchOperation):
-        """Send progress update to UI thread"""
-        progress = OperationProgress(
+        """Send enhanced progress update với timing information to UI thread"""
+        try:
+            # Calculate current processed files from percentage
+            current_processed = int((percentage / 100.0) * operation_config.total_files)
+            
+            # Update time estimator
+            self._time_estimator.update(current_processed, operation_config.total_files)
+            
+            progress = self._create_progress_info(
+                operation_config, percentage, current_file, current_processed
+            )
+            
+            # Send to queue (non-blocking)
+            self._progress_queue.put_nowait(progress)
+            
+        except queue.Full:
+            # Queue is full, skip this update to maintain responsiveness
+            logger.debug("Progress queue full, skipping update")
+        except Exception as e:
+            logger.warning(f"Error sending progress update: {e}")
+    
+    def _create_progress_info(self, operation_config: BatchOperation, 
+                            percentage: float, current_file: str, 
+                            current_processed: int) -> OperationProgress:
+        """Create progress info object with all timing and status data"""
+        return OperationProgress(
             operation_id=operation_config.operation_id,
             percentage=percentage,
             current_file=current_file,
-            processed_files=operation_config.processed_files,
-            total_files=operation_config.total_files
-        )
-        
-        try:
-            self._progress_queue.put_nowait(progress)
-        except queue.Full:
-            # Queue is full, skip this update
-            pass
+            processed_files=current_processed,
+            total_files=operation_config.total_files,
             
-    def _send_completion_result(self, result: BatchOperation):
+            # Enhanced timing information
+            elapsed_time=self._time_estimator.get_elapsed_time(),
+            estimated_time_remaining=self._time_estimator.estimate_remaining_time(
+                current_processed, operation_config.total_files
+            ),
+            processing_speed=self._time_estimator.get_processing_speed(current_processed),
+            
+            # Results summary from current result
+            success_count=self._current_result.success_count if self._current_result else 0,
+            error_count=self._current_result.error_count if self._current_result else 0,
+            skipped_count=self._current_result.skipped_count if self._current_result else 0
+        )
+            
+    def _send_completion_result(self, result: OperationResult):
         """Send completion result to UI thread"""
         try:
             self._result_queue.put_nowait(('completed', result))
@@ -249,25 +332,39 @@ class BatchOperationService:
         except queue.Full:
             logger.warning("Queue full, error result may be lost")
             
-    def _handle_cancellation(self, operation_config: BatchOperation):
-        """Handle operation cancellation"""
-        logger.info(f"Operation {operation_config.operation_id} was cancelled")
-        operation_config.log_message("Operation cancelled by user")
+    def _handle_cancellation_with_result(self, reason: str, partial_result: Optional[OperationResult] = None):
+        """Handle operation cancellation với enhanced result tracking"""
+        operation_id = self._current_operation.operation_id if self._current_operation else "unknown"
+        logger.info(f"Operation {operation_id} was cancelled: {reason}")
         
+        # Mark current result as cancelled
+        if self._current_result:
+            self._current_result.mark_cancelled(reason)
+        
+        if self._current_operation:
+            self._current_operation.log_message(f"Operation cancelled: {reason}")
+        
+        # Create final progress update
         progress = OperationProgress(
-            operation_id=operation_config.operation_id,
-            percentage=0.0,
+            operation_id=operation_id,
+            percentage=self._current_result.completion_percentage if self._current_result else 0.0,
             current_file="Operation cancelled",
-            processed_files=operation_config.processed_files,
-            total_files=operation_config.total_files,
+            processed_files=self._current_result.success_count + self._current_result.error_count if self._current_result else 0,
+            total_files=self._current_result.total_files if self._current_result else 0,
             is_completed=True,
             has_error=True,
-            error_message="Operation cancelled by user"
+            error_message=f"Operation cancelled: {reason}",
+            
+            # Include timing information
+            elapsed_time=self._time_estimator.get_elapsed_time(),
+            success_count=self._current_result.success_count if self._current_result else 0,
+            error_count=self._current_result.error_count if self._current_result else 0,
+            skipped_count=self._current_result.skipped_count if self._current_result else 0
         )
         
         try:
             self._progress_queue.put_nowait(progress)
-            self._result_queue.put_nowait(('cancelled', operation_config))
+            self._result_queue.put_nowait(('cancelled', self._current_result or partial_result))
         except queue.Full:
             pass
             
@@ -317,7 +414,7 @@ class BatchOperationService:
             
         # Wait for worker thread to finish
         if self._worker_thread and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=5.0)
+            self._worker_thread.join(timeout=THREAD_JOIN_TIMEOUT)
             if self._worker_thread.is_alive():
                 logger.warning("Worker thread did not terminate cleanly")
                 

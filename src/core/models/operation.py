@@ -2,8 +2,9 @@
 Operation and normalization rules data models
 """
 
+import time
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
 from enum import Enum
 
@@ -17,11 +18,293 @@ class OperationType(Enum):
     RESTORE = "restore"
 
 
+class OperationStatus(Enum):
+    """Status of batch operation with cancellation support"""
+    PENDING = "pending"
+    RUNNING = "running"
+    CANCELLING = "cancelling"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class ValidationLevel(Enum):
     """Validation level for operations"""
     STRICT = "strict"
     NORMAL = "normal"
     PERMISSIVE = "permissive"
+
+
+class OperationCancelledException(Exception):
+    """Exception raised when operation is cancelled"""
+    
+    def __init__(self, reason: str, partial_result: Optional['OperationResult'] = None):
+        self.reason = reason
+        self.partial_result = partial_result
+        super().__init__(f"Operation cancelled: {reason}")
+
+
+@dataclass
+class CancellationToken:
+    """
+    Token for managing operation cancellation with thread safety
+    
+    Provides safe cancellation mechanism for long-running operations.
+    Operations should check is_cancelled at safe cancellation points.
+    """
+    is_cancelled: bool = False
+    reason: Optional[str] = None
+    requested_at: Optional[datetime] = None
+    
+    def request_cancellation(self, reason: str = "User requested"):
+        """Request cancellation of the operation"""
+        if not self.is_cancelled:
+            self.is_cancelled = True
+            self.reason = reason
+            self.requested_at = datetime.now()
+    
+    def check_cancelled(self):
+        """Check if cancellation was requested and raise exception if so"""
+        if self.is_cancelled:
+            raise OperationCancelledException(self.reason or "Operation cancelled")
+    
+    def reset(self):
+        """Reset the cancellation token for reuse"""
+        self.is_cancelled = False
+        self.reason = None
+        self.requested_at = None
+
+
+@dataclass
+class FileOperationResult:
+    """Result of a single file operation"""
+    file_path: str
+    original_name: str
+    new_name: str
+    success: bool
+    error_message: Optional[str] = None
+    processing_time: Optional[float] = None
+    operation_type: str = "rename"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            'file_path': self.file_path,
+            'original_name': self.original_name,
+            'new_name': self.new_name,
+            'success': self.success,
+            'error_message': self.error_message,
+            'processing_time': self.processing_time,
+            'operation_type': self.operation_type
+        }
+
+
+@dataclass
+class OperationResult:
+    """
+    Enhanced result of a batch operation with detailed statistics và cancellation support
+    """
+    operation_id: str
+    operation_type: str
+    status: OperationStatus
+    
+    # File operation results
+    file_results: List[FileOperationResult] = field(default_factory=list)
+    
+    # Statistics
+    total_files: int = 0
+    success_count: int = 0
+    error_count: int = 0
+    skipped_count: int = 0
+    
+    # Timing information
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    total_duration: Optional[float] = None
+    
+    # Cancellation information
+    was_cancelled: bool = False
+    cancellation_reason: Optional[str] = None
+    cancellation_time: Optional[datetime] = None
+    
+    # Error information
+    error_message: Optional[str] = None
+    fatal_error: bool = False
+    
+    def add_file_result(self, result: FileOperationResult):
+        """Add a file operation result and update statistics"""
+        self.file_results.append(result)
+        
+        if result.success:
+            self.success_count += 1
+        else:
+            self.error_count += 1
+    
+    def mark_completed(self):
+        """Mark operation as completed"""
+        self.status = OperationStatus.COMPLETED
+        self.end_time = datetime.now()
+        if self.start_time:
+            self.total_duration = (self.end_time - self.start_time).total_seconds()
+    
+    def mark_cancelled(self, reason: str):
+        """Mark operation as cancelled"""
+        self.status = OperationStatus.CANCELLED
+        self.was_cancelled = True
+        self.cancellation_reason = reason
+        self.cancellation_time = datetime.now()
+        if self.start_time:
+            self.total_duration = (self.cancellation_time - self.start_time).total_seconds()
+    
+    def mark_failed(self, error_message: str, fatal: bool = False):
+        """Mark operation as failed"""
+        self.status = OperationStatus.FAILED
+        self.error_message = error_message
+        self.fatal_error = fatal
+        self.end_time = datetime.now()
+        if self.start_time:
+            self.total_duration = (self.end_time - self.start_time).total_seconds()
+    
+    @property
+    def completion_percentage(self) -> float:
+        """Calculate completion percentage"""
+        if self.total_files == 0:
+            return 0.0
+        completed = self.success_count + self.error_count + self.skipped_count
+        return (completed / self.total_files) * 100.0
+    
+    @property
+    def is_completed(self) -> bool:
+        """Check if operation is in a final state"""
+        return self.status in [OperationStatus.COMPLETED, OperationStatus.CANCELLED, OperationStatus.FAILED]
+
+
+@dataclass
+class ProgressCallback:
+    """
+    Callback wrapper for progress updates during batch operations
+    
+    Provides structured way to report progress với timing và cancellation checks.
+    """
+    callback_func: Callable[[float, str, Optional[str]], None]
+    update_interval: float = 0.1  # Minimum seconds between updates
+    last_update_time: float = field(default_factory=time.time)
+    
+    def report_progress(self, 
+                       percentage: float, 
+                       current_file: str,
+                       eta: Optional[str] = None,
+                       force_update: bool = False):
+        """
+        Report progress update if enough time has elapsed or forced
+        
+        Args:
+            percentage: Completion percentage (0-100)
+            current_file: Name of file being processed
+            eta: Estimated time remaining string
+            force_update: Force update regardless of time interval
+        """
+        current_time = time.time()
+        if force_update or (current_time - self.last_update_time) >= self.update_interval:
+            try:
+                self.callback_func(percentage, current_file, eta)
+                self.last_update_time = current_time
+            except Exception as e:
+                # Progress callback failures should not stop the operation
+                import logging
+                logging.getLogger(__name__).warning(f"Progress callback failed: {e}")
+
+
+class TimeEstimator:
+    """
+    Utility class for estimating remaining time in batch operations
+    """
+    
+    def __init__(self):
+        self.start_time: Optional[float] = None
+        self.samples: List[tuple[int, float]] = []  # (processed_files, timestamp)
+        self.max_samples = 10  # Keep last 10 samples for estimation
+    
+    def start(self):
+        """Start timing the operation"""
+        self.start_time = time.time()
+        self.samples.clear()
+    
+    def update(self, processed_files: int, total_files: int):
+        """Update with current progress"""
+        if self.start_time is None:
+            self.start()
+        
+        current_time = time.time()
+        self.samples.append((processed_files, current_time))
+        
+        # Keep only recent samples
+        if len(self.samples) > self.max_samples:
+            self.samples.pop(0)
+    
+    def get_elapsed_time(self) -> str:
+        """Get formatted elapsed time"""
+        if self.start_time is None:
+            return "00:00"
+        
+        elapsed_seconds = int(time.time() - self.start_time)
+        minutes, seconds = divmod(elapsed_seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        else:
+            return f"{minutes:02d}:{seconds:02d}"
+    
+    def estimate_remaining_time(self, processed_files: int, total_files: int) -> Optional[str]:
+        """Estimate remaining time based on current progress"""
+        if processed_files == 0 or total_files <= processed_files:
+            return None
+        
+        if len(self.samples) < 2:
+            return "Calculating..."
+        
+        # Use recent samples to estimate speed
+        recent_samples = self.samples[-5:]  # Last 5 samples
+        if len(recent_samples) < 2:
+            return "Calculating..."
+        
+        # Calculate processing speed (files per second)
+        time_diff = recent_samples[-1][1] - recent_samples[0][1]
+        files_diff = recent_samples[-1][0] - recent_samples[0][0]
+        
+        if time_diff <= 0 or files_diff <= 0:
+            return "Calculating..."
+        
+        speed = files_diff / time_diff  # files per second
+        remaining_files = total_files - processed_files
+        
+        if speed > 0:
+            remaining_seconds = int(remaining_files / speed)
+            minutes, seconds = divmod(remaining_seconds, 60)
+            hours, minutes = divmod(minutes, 60)
+            
+            if hours > 0:
+                return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                return f"{minutes:02d}:{seconds:02d}"
+        
+        return "Calculating..."
+    
+    def get_processing_speed(self, processed_files: int) -> str:
+        """Get current processing speed"""
+        if self.start_time is None or processed_files == 0:
+            return "0 files/sec"
+        
+        elapsed_time = time.time() - self.start_time
+        if elapsed_time > 0:
+            speed = processed_files / elapsed_time
+            if speed >= 1:
+                return f"{speed:.1f} files/sec"
+            else:
+                return f"{speed:.2f} files/sec"
+        
+        return "0 files/sec"
 
 
 @dataclass

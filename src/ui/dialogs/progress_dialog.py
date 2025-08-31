@@ -15,7 +15,7 @@ import time
 
 @dataclass
 class ProgressInfo:
-    """Progress information for batch operations"""
+    """Progress information for batch operations with enhanced timing"""
     current_file: str = ""
     processed_files: int = 0
     total_files: int = 0
@@ -24,6 +24,17 @@ class ProgressInfo:
     can_cancel: bool = True
     is_completed: bool = False
     error_message: Optional[str] = None
+    
+    # Enhanced timing and estimation fields
+    estimated_time_remaining: Optional[str] = None
+    elapsed_time: Optional[str] = None
+    processing_speed: Optional[str] = None  # "X files/sec"
+    operation_start_time: Optional[float] = None
+    
+    # Results summary for completion
+    success_count: int = 0
+    error_count: int = 0
+    skipped_count: int = 0
 
 
 class ProgressDialog:
@@ -56,6 +67,12 @@ class ProgressDialog:
         self.cancel_button: Optional[ttk.Button] = None
         self.status_label: Optional[ttk.Label] = None
         
+        # Enhanced timing components
+        self.eta_label: Optional[ttk.Label] = None
+        self.elapsed_time_label: Optional[ttk.Label] = None
+        self.speed_label: Optional[ttk.Label] = None
+        self.completion_summary_frame: Optional[ttk.Frame] = None
+        
         # Dialog state
         self.is_cancelled = False
         self.is_shown = False
@@ -81,7 +98,10 @@ class ProgressDialog:
         """Create and configure the dialog window"""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title(self.operation_name)
-        self.dialog.geometry("450x200")
+        # Constants for dialog sizing
+        DIALOG_WIDTH = 500
+        DIALOG_HEIGHT = 300
+        self.dialog.geometry(f"{DIALOG_WIDTH}x{DIALOG_HEIGHT}")
         self.dialog.resizable(False, False)
         
         # Center dialog on parent
@@ -111,12 +131,12 @@ class ProgressDialog:
         parent_height = self.parent.winfo_height()
         
         # Calculate center position
-        dialog_width = 450
-        dialog_height = 200
-        x = parent_x + (parent_width - dialog_width) // 2
-        y = parent_y + (parent_height - dialog_height) // 2
+        DIALOG_WIDTH = 500
+        DIALOG_HEIGHT = 300
+        x = parent_x + (parent_width - DIALOG_WIDTH) // 2
+        y = parent_y + (parent_height - DIALOG_HEIGHT) // 2
         
-        self.dialog.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+        self.dialog.geometry(f"{DIALOG_WIDTH}x{DIALOG_HEIGHT}+{x}+{y}")
         
     def _create_ui_components(self):
         """Create all UI components for the dialog"""
@@ -160,6 +180,35 @@ class ProgressDialog:
             font=('Arial', 9)
         )
         self.current_file_label.pack(anchor='w', fill=tk.X)
+        
+        # Timing information frame
+        timing_frame = ttk.LabelFrame(main_frame, text="Timing Information", padding=5)
+        timing_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Create three columns for timing info
+        timing_grid = ttk.Frame(timing_frame)
+        timing_grid.pack(fill=tk.X)
+        
+        # Column 1: Elapsed time
+        elapsed_frame = ttk.Frame(timing_grid)
+        elapsed_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(elapsed_frame, text="Elapsed:", font=('Arial', 8, 'bold')).pack(anchor='w')
+        self.elapsed_time_label = ttk.Label(elapsed_frame, text="00:00", font=('Arial', 8))
+        self.elapsed_time_label.pack(anchor='w')
+        
+        # Column 2: Estimated time remaining
+        eta_frame = ttk.Frame(timing_grid)
+        eta_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(eta_frame, text="Remaining:", font=('Arial', 8, 'bold')).pack(anchor='w')
+        self.eta_label = ttk.Label(eta_frame, text="Calculating...", font=('Arial', 8))
+        self.eta_label.pack(anchor='w')
+        
+        # Column 3: Processing speed
+        speed_frame = ttk.Frame(timing_grid)
+        speed_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(speed_frame, text="Speed:", font=('Arial', 8, 'bold')).pack(anchor='w')
+        self.speed_label = ttk.Label(speed_frame, text="0 files/sec", font=('Arial', 8))
+        self.speed_label.pack(anchor='w')
         
         # Status label for error messages
         self.status_label = ttk.Label(
@@ -220,10 +269,23 @@ class ProgressDialog:
             
         # Update current file (truncate if too long)
         if self.current_file_label:
-            current_file = info.current_file
-            if len(current_file) > 50:
-                current_file = "..." + current_file[-47:]
+            current_file = self._truncate_filename(info.current_file)
             self.current_file_label.config(text=current_file)
+            
+        # Update timing information
+        if self.elapsed_time_label and info.elapsed_time:
+            self.elapsed_time_label.config(text=info.elapsed_time)
+            
+        if self.eta_label:
+            if info.estimated_time_remaining:
+                self.eta_label.config(text=info.estimated_time_remaining)
+            elif info.percentage > 0:
+                self.eta_label.config(text="Calculating...")
+            else:
+                self.eta_label.config(text="--:--")
+                
+        if self.speed_label and info.processing_speed:
+            self.speed_label.config(text=info.processing_speed)
             
         # Update status/error message
         if self.status_label:
@@ -241,17 +303,71 @@ class ProgressDialog:
             self.cancel_button.config(state='normal' if info.can_cancel else 'disabled')
             
     def _handle_completion(self):
-        """Handle operation completion"""
+        """Handle operation completion with results summary"""
         if not self.dialog or not self.is_shown:
             return
+            
+        # Show completion summary
+        self._show_completion_summary()
             
         # Change cancel button to "Close"
         if self.cancel_button:
             self.cancel_button.config(text="Close", state='normal')
             
-        # Auto-close after delay if no errors
-        if not self.progress_info.error_message:
-            self.dialog.after(2000, self._close_dialog)  # Close after 2 seconds
+        # Auto-close after delay if no errors (AC: 8)
+        AUTO_CLOSE_DELAY_MS = 3000  # 3 seconds
+        if not self.progress_info.error_message and self.progress_info.success_count > 0:
+            self.dialog.after(AUTO_CLOSE_DELAY_MS, self._close_dialog)
+    
+    def _show_completion_summary(self):
+        """Show operation completion summary (AC: 6)"""
+        info = self.progress_info
+        
+        # Create completion summary if not exists
+        if not self.completion_summary_frame:
+            # Hide timing frame during completion
+            for child in self.dialog.winfo_children():
+                for frame in child.winfo_children():
+                    if isinstance(frame, ttk.LabelFrame) and "Timing" in frame.cget("text"):
+                        frame.pack_forget()
+                        break
+            
+            # Get main frame
+            main_frame = None
+            for child in self.dialog.winfo_children():
+                if isinstance(child, ttk.Frame):
+                    main_frame = child
+                    break
+            
+            if main_frame:
+                self.completion_summary_frame = ttk.LabelFrame(
+                    main_frame, 
+                    text="Operation Results", 
+                    padding=10
+                )
+                self.completion_summary_frame.pack(fill=tk.X, pady=(10, 0))
+                
+                # Success/failure summary
+                summary_text = []
+                if info.success_count > 0:
+                    summary_text.append(f"✓ Successfully processed {info.success_count} files")
+                if info.error_count > 0:
+                    summary_text.append(f"✗ Failed to process {info.error_count} files")
+                if info.skipped_count > 0:
+                    summary_text.append(f"⚠ Skipped {info.skipped_count} files")
+                
+                if not summary_text:
+                    summary_text = [f"✓ Operation completed ({info.processed_files} files)"]
+                
+                for text in summary_text:
+                    color = "green" if text.startswith("✓") else "red" if text.startswith("✗") else "orange"
+                    label = ttk.Label(
+                        self.completion_summary_frame,
+                        text=text,
+                        font=('Arial', 10),
+                        foreground=color
+                    )
+                    label.pack(anchor='w', pady=1)
             
     def _on_cancel_clicked(self):
         """Handle cancel button click"""
@@ -307,6 +423,12 @@ class ProgressDialog:
         if self.dialog and self.is_shown:
             self._close_dialog()
             
+    def _truncate_filename(self, filename: str, max_length: int = 50) -> str:
+        """Truncate filename for display if too long"""
+        if len(filename) <= max_length:
+            return filename
+        return "..." + filename[-(max_length - 3):]
+    
     def is_visible(self) -> bool:
         """Check if dialog is currently visible"""
         return self.is_shown and self.dialog is not None
