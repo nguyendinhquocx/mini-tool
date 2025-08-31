@@ -27,7 +27,10 @@ class ApplicationState:
     selected_folder: Optional[str] = None
     files_preview: List[Any] = field(default_factory=list)
     current_operation_id: Optional[str] = None
+    operation_in_progress: bool = False
     progress_percentage: float = 0.0
+    current_file_being_processed: Optional[str] = None
+    last_operation_result: Optional[Any] = None
 
 
 class StateManager:
@@ -101,6 +104,11 @@ class MainWindow:
         self.content_frame.grid(row=1, column=0, sticky="nsew")
         self.content_frame.columnconfigure(0, weight=1)
         self.content_frame.rowconfigure(1, weight=1)
+        
+        # Action buttons frame
+        self.action_frame = ttk.Frame(self.main_frame)
+        self.action_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        self.action_frame.columnconfigure(0, weight=1)
 
     def _create_menu(self):
         self.menubar = tk.Menu(self.root)
@@ -139,6 +147,9 @@ class MainWindow:
 
     def get_content_frame(self):
         return self.content_frame
+    
+    def get_action_frame(self):
+        return self.action_frame
 
     def get_state_manager(self):
         return self.state_manager

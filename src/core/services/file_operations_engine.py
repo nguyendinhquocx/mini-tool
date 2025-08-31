@@ -11,7 +11,7 @@ Provides comprehensive file processing capabilities including:
 """
 
 import os
-from typing import List, Optional, Dict, Any, Generator
+from typing import List, Optional, Dict, Any, Generator, Callable
 from pathlib import Path
 import logging
 
@@ -31,6 +31,7 @@ class FileOperationsEngine:
     def __init__(self, normalizer: Optional[VietnameseNormalizer] = None):
         self.normalizer = normalizer or VietnameseNormalizer()
         self._operation_history: List[BatchOperation] = []
+        self._current_operation_cancelled = False
     
     def scan_folder_contents(self, folder_path: str, recursive: bool = False, 
                            include_hidden: bool = False) -> List[FileInfo]:
@@ -194,13 +195,15 @@ class FileOperationsEngine:
         return preview
     
     def execute_batch_rename(self, previews: List[RenamePreview], 
-                           operation_config: Optional[BatchOperation] = None) -> BatchOperation:
+                           operation_config: Optional[BatchOperation] = None,
+                           progress_callback: Optional[Callable[[float, str], None]] = None) -> BatchOperation:
         """
         Execute batch rename operation based on previews
         
         Args:
             previews: List of rename previews
             operation_config: Optional batch operation configuration
+            progress_callback: Optional callback for progress updates (percentage, current_file)
             
         Returns:
             Completed BatchOperation with results
@@ -218,9 +221,20 @@ class FileOperationsEngine:
         
         operation_config.start_operation()
         processing_records = []
+        self._current_operation_cancelled = False
         
         try:
-            for preview in previews:
+            for i, preview in enumerate(previews):
+                # Check for cancellation
+                if self._current_operation_cancelled:
+                    operation_config.log_message("Operation cancelled by user")
+                    break
+                
+                # Update progress callback if provided
+                if progress_callback:
+                    progress_percentage = (i / len(previews)) * 100
+                    progress_callback(progress_percentage, preview.original_name)
+                
                 record = self._execute_single_rename(preview, operation_config)
                 processing_records.append(record)
                 
@@ -228,6 +242,10 @@ class FileOperationsEngine:
                 success = record.operation_status == OperationStatus.SUCCESS
                 skipped = record.operation_status == OperationStatus.SKIPPED
                 operation_config.increment_progress(success, skipped)
+                
+            # Final progress update
+            if progress_callback and not self._current_operation_cancelled:
+                progress_callback(100.0, "Operation completed")
                 
         except Exception as e:
             operation_config.log_error(f"Batch operation failed: {e}")
@@ -329,6 +347,74 @@ class FileOperationsEngine:
     def get_operation_history(self) -> List[BatchOperation]:
         """Get history of batch operations"""
         return self._operation_history.copy()
+    
+    def cancel_current_operation(self):
+        """Cancel the currently running batch operation"""
+        self._current_operation_cancelled = True
+        logger.info("Batch operation cancellation requested")
+    
+    def detect_and_resolve_conflicts(self, previews: List[RenamePreview]) -> List[RenamePreview]:
+        """
+        Detect duplicate names and resolve conflicts with automatic numbering
+        
+        Args:
+            previews: List of rename previews to check for conflicts
+            
+        Returns:
+            List of previews with conflicts resolved
+        """
+        # Track normalized names to detect duplicates
+        name_counts = {}
+        resolved_previews = []
+        
+        for preview in previews:
+            normalized_name = preview.normalized_name
+            parent_dir = os.path.dirname(preview.normalized_full_path)
+            
+            # Check if this normalized name already exists
+            if normalized_name in name_counts:
+                # Generate unique name with counter
+                name_without_ext, ext = os.path.splitext(normalized_name)
+                counter = name_counts[normalized_name]
+                unique_name = f"{name_without_ext}_{counter}{ext}"
+                
+                # Update preview with unique name
+                preview.normalized_name = unique_name
+                preview.normalized_full_path = os.path.join(parent_dir, unique_name)
+                preview.add_change_description(f"Resolved duplicate name: {normalized_name} → {unique_name}")
+                
+                name_counts[normalized_name] += 1
+                name_counts[unique_name] = 1
+                
+            else:
+                name_counts[normalized_name] = 1
+                
+            # Check if target already exists in file system
+            if os.path.exists(preview.normalized_full_path) and preview.normalized_full_path != preview.file_info.path:
+                # File exists and it's not the same file - generate unique name
+                name_without_ext, ext = os.path.splitext(preview.normalized_name)
+                counter = 1
+                
+                while True:
+                    unique_name = f"{name_without_ext}_{counter}{ext}"
+                    unique_path = os.path.join(parent_dir, unique_name)
+                    
+                    if not os.path.exists(unique_path):
+                        preview.normalized_name = unique_name
+                        preview.normalized_full_path = unique_path
+                        preview.add_change_description(f"Resolved file system conflict: {unique_name}")
+                        break
+                        
+                    counter += 1
+                    
+                    # Safety limit to prevent infinite loop
+                    if counter > 9999:
+                        preview.add_warning("Could not resolve file system conflict")
+                        break
+                        
+            resolved_previews.append(preview)
+            
+        return resolved_previews
     
     def validate_operation(self, files: List[FileInfo], 
                          rules: NormalizationRules) -> Dict[str, Any]:
