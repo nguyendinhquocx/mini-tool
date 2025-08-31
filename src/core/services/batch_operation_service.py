@@ -22,6 +22,8 @@ from ..models.operation import (
 )
 from .file_operations_engine import FileOperationsEngine
 from .normalize_service import VietnameseNormalizer
+from .operation_history_service import OperationHistoryService
+from .database_service import DatabaseService
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -79,8 +81,14 @@ class BatchOperationService:
     - Error handling and reporting
     """
     
-    def __init__(self, normalizer: Optional[VietnameseNormalizer] = None):
+    def __init__(self, normalizer: Optional[VietnameseNormalizer] = None,
+                 database_service: Optional[DatabaseService] = None,
+                 operation_history_service: Optional[OperationHistoryService] = None):
         self.file_engine = FileOperationsEngine(normalizer)
+        
+        # Database and history services for undo functionality
+        self.db = database_service or DatabaseService()
+        self.history_service = operation_history_service or OperationHistoryService(self.db)
         
         # Threading components
         self._worker_thread: Optional[threading.Thread] = None
@@ -244,6 +252,11 @@ class BatchOperationService:
             # Final progress update
             self._cancellation_token.check_cancelled()
             self._current_result.mark_completed()
+            
+            # Save operation to history with undo metadata (if not dry run)
+            if not operation_config.dry_run:
+                self._save_operation_with_undo_metadata(operation_config, result, previews)
+            
             self._send_progress_update(100.0, "Operation completed successfully", operation_config)
             self._send_completion_result(self._current_result)
             logger.info(f"Batch operation {operation_config.operation_id} completed successfully")
@@ -433,6 +446,97 @@ class BatchOperationService:
             
         self._is_running = False
         self._current_operation = None
+    
+    def _save_operation_with_undo_metadata(self, operation_config: BatchOperation, 
+                                          result: Any, previews: List[RenamePreview]):
+        """Save operation with enhanced metadata for undo functionality"""
+        try:
+            from datetime import timedelta
+            import os
+            
+            # Create file processing records with undo metadata
+            file_records = []
+            
+            for preview in previews:
+                if preview.has_changes and not preview.has_conflict:
+                    # Get file modification time for undo validation
+                    original_modified_time = None
+                    file_size = 0
+                    
+                    try:
+                        if os.path.exists(preview.file_info.path):
+                            stat_info = os.stat(preview.file_info.path)
+                            original_modified_time = datetime.fromtimestamp(stat_info.st_mtime)
+                            file_size = stat_info.st_size
+                    except (OSError, IOError) as e:
+                        logger.warning(f"Could not get file stats for {preview.file_info.path}: {e}")
+                        continue
+                    
+                    # Create file processing record
+                    from ..models.file_info import FileProcessingRecord, OperationStatus
+                    
+                    record = FileProcessingRecord(
+                        file_info=preview.file_info,
+                        original_name=preview.file_info.name,
+                        processed_name=preview.normalized_name,
+                        operation_status=OperationStatus.SUCCESS,  # Assume success for now
+                        operation_id=operation_config.operation_id,
+                        source_path=preview.file_info.path,
+                        target_path=preview.normalized_full_path,
+                        started_at=operation_config.started_at,
+                        completed_at=operation_config.completed_at
+                    )
+                    
+                    file_records.append(record)
+            
+            # Save to history service
+            success = self.history_service.save_operation(operation_config, file_records)
+            
+            if success:
+                # Set undo expiry time (7 days from completion)
+                expiry_time = datetime.now() + timedelta(days=7)
+                
+                # Update operation in database with undo-specific fields
+                self.db.execute_update('''
+                    UPDATE operation_history 
+                    SET can_be_undone = ?, undo_expiry_time = ?
+                    WHERE operation_id = ?
+                ''', (True, expiry_time.isoformat(), operation_config.operation_id))
+                
+                # Save file metadata with original modification times for validation
+                file_metadata = []
+                for record in file_records:
+                    try:
+                        if os.path.exists(record.target_path):
+                            stat_info = os.stat(record.target_path)
+                            original_modified_time = datetime.fromtimestamp(stat_info.st_mtime)
+                            
+                            file_metadata.append((
+                                operation_config.operation_id,
+                                record.target_path,
+                                record.processed_name,
+                                record.original_name,
+                                original_modified_time.isoformat(),
+                                record.file_info.size,
+                                None  # checksum - could be calculated if needed
+                            ))
+                    except (OSError, IOError):
+                        continue
+                
+                if file_metadata:
+                    self.db.execute_many('''
+                        INSERT OR REPLACE INTO file_operations (
+                            operation_id, file_path, new_name, original_name,
+                            original_modified_time, file_size_bytes, file_checksum
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', file_metadata)
+                
+                logger.info(f"Saved operation {operation_config.operation_id} with undo metadata")
+            else:
+                logger.warning(f"Failed to save operation {operation_config.operation_id} to history")
+                
+        except Exception as e:
+            logger.error(f"Failed to save operation with undo metadata: {e}")
         
 
 # Example usage for testing

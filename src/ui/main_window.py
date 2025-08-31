@@ -31,6 +31,13 @@ class ApplicationState:
     progress_percentage: float = 0.0
     current_file_being_processed: Optional[str] = None
     last_operation_result: Optional[Any] = None
+    
+    # Undo State Management
+    last_operation_id: Optional[str] = None
+    can_undo_last_operation: bool = False
+    undo_button_tooltip: str = "No operation to undo"
+    undo_disabled_reason: Optional[str] = None
+    files_modified_externally: List[str] = field(default_factory=list)
 
 
 class StateManager:

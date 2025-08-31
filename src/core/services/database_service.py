@@ -31,7 +31,7 @@ class DatabaseService:
     """
     
     # Database schema version for migrations
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
@@ -118,6 +118,10 @@ class DatabaseService:
         if from_version < 1:
             # Initial schema creation
             self._create_initial_schema(conn)
+            
+        if from_version < 2:
+            # Add undo functionality enhancements
+            self._migrate_to_version_2(conn)
             
         # Update schema version
         conn.execute(
@@ -314,6 +318,102 @@ class DatabaseService:
                     info[f'{table}_count'] = count['count'] if count else 0
                     
             return info
+    
+    def _migrate_to_version_2(self, conn: sqlite3.Connection):
+        """Migrate database to version 2 - Add undo functionality support"""
+        logger.info("Migrating database to version 2: Adding undo functionality")
+        
+        # Add undo-specific columns to operation_history table
+        try:
+            conn.execute('ALTER TABLE operation_history ADD COLUMN can_be_undone BOOLEAN DEFAULT 1')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+            
+        try:
+            conn.execute('ALTER TABLE operation_history ADD COLUMN undo_expiry_time TIMESTAMP')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+            
+        try:
+            conn.execute('ALTER TABLE operation_history ADD COLUMN undo_operation_id TEXT')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+        
+        # Add original modification timestamps to file_operations table
+        try:
+            conn.execute('ALTER TABLE file_operations ADD COLUMN original_modified_time TIMESTAMP')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+            
+        try:
+            conn.execute('ALTER TABLE file_operations ADD COLUMN file_size_bytes INTEGER')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+            
+        try:
+            conn.execute('ALTER TABLE file_operations ADD COLUMN file_checksum TEXT')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+        
+        # Create undo_operations table for detailed undo tracking
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS undo_operations (
+                undo_operation_id TEXT PRIMARY KEY,
+                original_operation_id TEXT NOT NULL,
+                folder_path TEXT NOT NULL,
+                total_files INTEGER NOT NULL DEFAULT 0,
+                successful_restorations INTEGER NOT NULL DEFAULT 0,
+                failed_restorations INTEGER NOT NULL DEFAULT 0,
+                skipped_files INTEGER NOT NULL DEFAULT 0,
+                execution_status TEXT NOT NULL DEFAULT 'not_started',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                duration_seconds REAL,
+                was_cancelled BOOLEAN DEFAULT 0,
+                cancellation_reason TEXT,
+                error_message TEXT,
+                file_mappings TEXT,  -- JSON
+                validation_results TEXT,  -- JSON
+                restored_files TEXT,  -- JSON array
+                failed_files TEXT,   -- JSON array
+                FOREIGN KEY (original_operation_id) REFERENCES operation_history(operation_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Create file_validation_cache for external modification detection
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS file_validation_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_id TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                current_name TEXT NOT NULL,
+                original_name TEXT NOT NULL,
+                original_modified_time TIMESTAMP NOT NULL,
+                last_validated_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                validation_status TEXT NOT NULL DEFAULT 'valid',
+                validation_error TEXT,
+                can_be_restored BOOLEAN DEFAULT 1,
+                conflict_with_existing BOOLEAN DEFAULT 0,
+                existing_file_path TEXT,
+                FOREIGN KEY (operation_id) REFERENCES operation_history(operation_id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Create additional indexes for better performance
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_operation_history_can_undo ON operation_history(can_be_undone)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_operation_history_expiry ON operation_history(undo_expiry_time)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_undo_operations_original_id ON undo_operations(original_operation_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_file_validation_operation_id ON file_validation_cache(operation_id)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_file_validation_status ON file_validation_cache(validation_status)')
+        
+        logger.info("Database migration to version 2 completed successfully")
 
 
 # Example usage and testing

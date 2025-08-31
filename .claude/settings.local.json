@@ -80,7 +80,9 @@
       "Bash(venv/Scripts/pyinstaller.exe --onefile --name FileRenameTool --noconsole file.py)",
       "Bash(venv/Scripts/pytest.exe tests/unit/test_file_preview.py -v --tb=short)",
       "Bash(venvScriptspytest.exe tests/unit/test_file_preview.py -v --tb=short)",
-      "Bash(venv/Scripts/pytest.exe tests/unit/test_progress_dialog_cancellation.py -v --tb=short)"
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_progress_dialog_cancellation.py -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_undo_service.py -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_undo_service.py -v --tb=short)"
     ],
     "deny": [],
     "ask": [],

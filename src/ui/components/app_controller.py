@@ -9,7 +9,8 @@ try:
     from ...core.services.batch_operation_service import BatchOperationService, BatchOperationRequest, OperationProgress
     from ...core.services.operation_history_service import OperationHistoryService
     from ...core.services.database_service import DatabaseService
-    from ...core.models.operation import NormalizationRules, OperationType
+    from ...core.services.undo_service import UndoService
+    from ...core.models.operation import NormalizationRules, OperationType, CancellationToken
     from ...core.models.file_info import FileInfo
 except ImportError:
     # Handle absolute imports when running tests
@@ -20,7 +21,8 @@ except ImportError:
     from core.services.batch_operation_service import BatchOperationService, BatchOperationRequest, OperationProgress
     from core.services.operation_history_service import OperationHistoryService
     from core.services.database_service import DatabaseService
-    from core.models.operation import NormalizationRules, OperationType
+    from core.services.undo_service import UndoService
+    from core.models.operation import NormalizationRules, OperationType, CancellationToken
     from core.models.file_info import FileInfo
 
 
@@ -32,7 +34,11 @@ class AppController:
         # Initialize core services
         self.db_service = DatabaseService()
         self.history_service = OperationHistoryService(self.db_service)
-        self.batch_service = BatchOperationService()
+        self.undo_service = UndoService(self.db_service, self.history_service)
+        self.batch_service = BatchOperationService(
+            database_service=self.db_service,
+            operation_history_service=self.history_service
+        )
         
         # UI Components
         self.folder_selector: Optional[FolderSelectorComponent] = None
@@ -179,24 +185,75 @@ class AppController:
             self.rename_button.config(state=tk.NORMAL if can_rename else tk.DISABLED)
             
         if self.undo_button:
-            # Enable undo button if there's a recent operation to undo
-            try:
-                history = self.history_service.get_operation_history(limit=5)
-                has_undoable = False
+            # Update undo button state based on enhanced undo availability
+            self._update_undo_button_state(state)
+    
+    def _update_undo_button_state(self, state: ApplicationState):
+        """Update undo button state with enhanced validation and tooltip"""
+        try:
+            # Check if there's an undoable operation for current folder
+            last_operation = self.undo_service.get_last_undoable_operation(state.selected_folder)
+            
+            if last_operation and not state.operation_in_progress:
+                # Quick eligibility check
+                eligibility = self.undo_service.can_undo_operation(last_operation['operation_id'])
                 
-                for op in history:
-                    if (op['operation_type'] != OperationType.RESTORE.value and 
-                        op['successful_files'] > 0):
-                        can_undo, _ = self.history_service.can_undo_operation(op['operation_id'])
-                        if can_undo:
-                            has_undoable = True
-                            break
-                            
-                self.undo_button.config(state=tk.NORMAL if has_undoable else tk.DISABLED)
-                
-            except Exception:
-                # If there's any error checking undo status, disable button
+                if eligibility.can_undo:
+                    # Enable undo button
+                    self.undo_button.config(state=tk.NORMAL)
+                    
+                    # Set informative tooltip
+                    tooltip_text = (f"Undo: {last_operation['operation_name']} "
+                                  f"({eligibility.valid_files} files)")
+                    
+                    # Update state for UI consistency
+                    self.state_manager.update_state(
+                        can_undo_last_operation=True,
+                        last_operation_id=last_operation['operation_id'],
+                        undo_button_tooltip=tooltip_text,
+                        undo_disabled_reason=None
+                    )
+                else:
+                    # Disable with reason
+                    self.undo_button.config(state=tk.DISABLED)
+                    
+                    # Set explanatory tooltip
+                    tooltip_text = f"Cannot undo: {eligibility.primary_reason}"
+                    
+                    # Update state
+                    self.state_manager.update_state(
+                        can_undo_last_operation=False,
+                        undo_button_tooltip=tooltip_text,
+                        undo_disabled_reason=eligibility.primary_reason
+                    )
+            else:
+                # No undoable operations
                 self.undo_button.config(state=tk.DISABLED)
+                
+                tooltip_text = "No operation to undo"
+                if state.operation_in_progress:
+                    tooltip_text = "Operation in progress"
+                    
+                # Update state
+                self.state_manager.update_state(
+                    can_undo_last_operation=False,
+                    last_operation_id=None,
+                    undo_button_tooltip=tooltip_text,
+                    undo_disabled_reason=tooltip_text
+                )
+                
+        except Exception as e:
+            # Error checking undo status - disable button
+            self.undo_button.config(state=tk.DISABLED)
+            
+            tooltip_text = f"Undo check failed: {str(e)}"
+            
+            # Update state
+            self.state_manager.update_state(
+                can_undo_last_operation=False,
+                undo_button_tooltip=tooltip_text,
+                undo_disabled_reason=str(e)
+            )
     
     def _on_rename_files_clicked(self):
         """Handle rename files button click - execute batch rename operation"""
@@ -269,105 +326,99 @@ class AppController:
             self._handle_operation_error(f"Failed to start batch operation: {str(e)}")
     
     def _on_undo_clicked(self):
-        """Handle undo button click - undo last operation"""
+        """Handle undo button click - enhanced undo with validation and progress"""
         try:
-            # Get recent operations that can be undone
-            history = self.history_service.get_operation_history(limit=10)
-            undoable_ops = []
+            # Get the last undoable operation for current folder
+            current_state = self.state_manager.state
+            last_operation = self.undo_service.get_last_undoable_operation(current_state.selected_folder)
             
-            for op in history:
-                if op['operation_type'] != OperationType.RESTORE.value and op['successful_files'] > 0:
-                    can_undo, reason = self.history_service.can_undo_operation(op['operation_id'])
-                    if can_undo:
-                        undoable_ops.append(op)
-                        
-            if not undoable_ops:
+            if not last_operation:
                 messagebox.showinfo(
                     "No Operations to Undo",
-                    "There are no recent operations that can be undone.",
+                    "There are no recent operations that can be undone in this folder.",
                     parent=self.main_window.root
                 )
                 return
-                
-            # Use the most recent undoable operation
-            last_op = undoable_ops[0]
             
-            # Confirm undo with user
-            result = messagebox.askyesno(
-                "Confirm Undo Operation",
-                f"This will undo the operation:\n\n"
-                f"Operation: {last_op['operation_name']}\n"
-                f"Files affected: {last_op['successful_files']}\n"
-                f"Completed: {last_op['completed_at'][:19] if last_op['completed_at'] else 'Unknown'}\n\n"
-                f"This will restore the original file names. Continue?",
-                parent=self.main_window.root
-            )
+            operation_id = last_operation['operation_id']
             
+            # Check detailed undo eligibility
+            eligibility = self.undo_service.can_undo_operation(operation_id)
+            
+            if not eligibility.can_undo:
+                # Show detailed reason why undo is not possible
+                self._show_undo_eligibility_dialog(eligibility)
+                return
+            
+            # Show undo confirmation dialog with operation details
+            result = self._show_undo_confirmation_dialog(last_operation, eligibility)
             if not result:
                 return
-                
-            # Show progress and execute undo
+            
+            # Update UI state
+            self.state_manager.update_state(operation_in_progress=True)
+            
+            # Show enhanced progress dialog
             self.progress_dialog = ProgressDialog(self.main_window.root, "Undoing Operation")
             self.progress_dialog.show()
             
-            # Execute undo in background (simulated for now - could be made async)
-            def progress_callback(percentage, current_file):
+            # Create cancellation token for undo operation
+            cancellation_token = CancellationToken()
+            
+            # Set up progress callback
+            def progress_callback(percentage: float, current_file: str):
                 if self.progress_dialog:
                     progress_info = ProgressInfo(
                         current_file=current_file,
                         percentage=percentage,
-                        operation_name="Undoing Operation",
-                        can_cancel=False
+                        operation_name=f"Undoing: {last_operation['operation_name']}",
+                        can_cancel=True
                     )
                     self.progress_dialog.update_progress(progress_info)
                     
-            success, message, failed_files = self.history_service.undo_operation(
-                last_op['operation_id'],
-                progress_callback
+                    # Check if user cancelled
+                    if self.progress_dialog.is_cancelled:
+                        cancellation_token.request_cancellation("User cancelled undo operation")
+            
+            # Execute enhanced undo operation
+            undo_result = self.undo_service.execute_undo_operation(
+                operation_id,
+                progress_callback,
+                cancellation_token
             )
             
-            # Show completion
+            # Close progress dialog
             if self.progress_dialog:
-                final_progress = ProgressInfo(
-                    current_file="Undo operation completed",
-                    percentage=100.0,
-                    operation_name="Undoing Operation",
-                    is_completed=True,
-                    can_cancel=False
-                )
-                self.progress_dialog.update_progress(final_progress)
-                
+                self.progress_dialog.close()
+                self.progress_dialog = None
+            
+            # Update UI state
+            self.state_manager.update_state(
+                operation_in_progress=False,
+                can_undo_last_operation=False,  # No longer can undo this operation
+                undo_button_tooltip="No operation to undo"
+            )
+            
             # Refresh file preview if we're in the same folder
-            current_state = self.state_manager.state
-            if current_state.selected_folder == last_op['source_directory']:
+            if current_state.selected_folder == last_operation['source_directory']:
                 if self.file_preview:
                     self.file_preview.update_files(current_state.selected_folder)
-                    
-            # Show result message
-            if success:
-                if failed_files:
-                    messagebox.showwarning(
-                        "Undo Partially Completed",
-                        f"{message}\n\nFailed files:\n" + "\n".join(failed_files[:5]),
-                        parent=self.main_window.root
-                    )
-                else:
-                    messagebox.showinfo(
-                        "Undo Completed",
-                        message,
-                        parent=self.main_window.root
-                    )
-            else:
-                messagebox.showerror(
-                    "Undo Failed",
-                    f"Failed to undo operation: {message}",
-                    parent=self.main_window.root
-                )
-                
+            
+            # Show detailed result dialog
+            self._show_undo_result_dialog(undo_result, last_operation)
+            
         except Exception as e:
+            # Close progress dialog on error
+            if self.progress_dialog:
+                self.progress_dialog.close()
+                self.progress_dialog = None
+            
+            # Update UI state
+            self.state_manager.update_state(operation_in_progress=False)
+            
             messagebox.showerror(
                 "Undo Error",
-                f"An error occurred during undo: {str(e)}",
+                f"An error occurred during undo operation:\n\n{str(e)}",
                 parent=self.main_window.root
             )
     
@@ -492,3 +543,131 @@ class AppController:
         
         # Log error
         print(f"Operation error: {error_message}")
+    
+    # Undo Helper Methods
+    def _show_undo_eligibility_dialog(self, eligibility):
+        """Show detailed dialog explaining why undo is not possible"""
+        title = "Undo Not Available"
+        
+        message_parts = [
+            "Cannot undo the last operation for the following reason:",
+            "",
+            eligibility.get_summary_message(),
+            ""
+        ]
+        
+        # Add specific details
+        if eligibility.missing_files:
+            message_parts.extend([
+                f"Missing files ({len(eligibility.missing_files)}):",
+                "• " + "\n• ".join(eligibility.missing_files[:5]),
+                ("• ..." if len(eligibility.missing_files) > 5 else ""),
+                ""
+            ])
+        
+        if eligibility.modified_files:
+            message_parts.extend([
+                f"Files modified externally ({len(eligibility.modified_files)}):",
+                "• " + "\n• ".join(eligibility.modified_files[:5]),
+                ("• ..." if len(eligibility.modified_files) > 5 else ""),
+                ""
+            ])
+        
+        if eligibility.conflicting_files:
+            message_parts.extend([
+                f"Name conflicts ({len(eligibility.conflicting_files)}):",
+                "• " + "\n• ".join(eligibility.conflicting_files[:5]),
+                ("• ..." if len(eligibility.conflicting_files) > 5 else ""),
+                ""
+            ])
+        
+        message = "\n".join(filter(None, message_parts))
+        
+        messagebox.showwarning(title, message, parent=self.main_window.root)
+    
+    def _show_undo_confirmation_dialog(self, operation, eligibility):
+        """Show enhanced undo confirmation dialog"""
+        message_parts = [
+            "This will undo the following operation:",
+            "",
+            f"Operation: {operation['operation_name']}",
+            f"Files to restore: {eligibility.valid_files}",
+            f"Completed: {operation['completed_at'][:19] if operation['completed_at'] else 'Unknown'}",
+            ""
+        ]
+        
+        if eligibility.file_validations:
+            # Show sample of files that will be restored
+            sample_files = []
+            for validation in eligibility.file_validations[:3]:
+                if validation.is_valid:
+                    sample_files.append(f"  {validation.current_name} → {validation.original_name}")
+            
+            if sample_files:
+                message_parts.extend([
+                    "Sample files to be restored:",
+                    "\n".join(sample_files),
+                    ("  ..." if eligibility.valid_files > 3 else ""),
+                    ""
+                ])
+        
+        message_parts.extend([
+            "This will restore the original file names.",
+            "This action cannot be undone.",
+            "",
+            "Continue with undo operation?"
+        ])
+        
+        message = "\n".join(filter(None, message_parts))
+        
+        return messagebox.askyesno(
+            "Confirm Undo Operation",
+            message,
+            parent=self.main_window.root
+        )
+    
+    def _show_undo_result_dialog(self, undo_result, original_operation):
+        """Show detailed undo operation result"""
+        if undo_result.is_successful:
+            title = "Undo Completed Successfully"
+            message_parts = [
+                f"Successfully undone operation: {original_operation['operation_name']}",
+                "",
+                f"Files restored: {undo_result.successful_restorations}",
+                f"Total duration: {undo_result.total_duration:.2f} seconds" if undo_result.total_duration else ""
+            ]
+            
+            messagebox.showinfo(title, "\n".join(filter(None, message_parts)), parent=self.main_window.root)
+            
+        elif undo_result.partial_success:
+            title = "Undo Partially Completed"
+            message_parts = [
+                f"Partially undone operation: {original_operation['operation_name']}",
+                "",
+                f"Files restored: {undo_result.successful_restorations}",
+                f"Files failed: {undo_result.failed_restorations}",
+                ""
+            ]
+            
+            # Show failed files
+            if undo_result.failed_files:
+                message_parts.extend([
+                    "Failed files:",
+                    "• " + "\n• ".join([f"{f[0]}: {f[1]}" for f in undo_result.failed_files[:3]]),
+                    ("• ..." if len(undo_result.failed_files) > 3 else "")
+                ])
+            
+            messagebox.showwarning(title, "\n".join(filter(None, message_parts)), parent=self.main_window.root)
+            
+        else:
+            title = "Undo Failed"
+            message_parts = [
+                f"Failed to undo operation: {original_operation['operation_name']}",
+                "",
+                undo_result.completion_message
+            ]
+            
+            if undo_result.error_message:
+                message_parts.extend(["", f"Error: {undo_result.error_message}"])
+            
+            messagebox.showerror(title, "\n".join(filter(None, message_parts)), parent=self.main_window.root)
