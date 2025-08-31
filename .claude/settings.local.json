@@ -64,7 +64,15 @@
       "Bash(del:*)",
       "Bash(venv/Scripts/pytest.exe tests/unit/test_main_window.py -v)",
       "Bash(venv/Scripts/pytest.exe tests/unit/test_file_preview.py -v)",
-      "Bash(venv/Scripts/pytest.exe tests/integration/ -v)"
+      "Bash(venv/Scripts/pytest.exe tests/integration/ -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py::TestVietnameseNormalizer::test_clean_special_chars -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py::TestVietnameseNormalizer::test_custom_character_replacements -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py::TestVietnameseNormalizer::test_real_world_filenames -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py::TestVietnameseNormalizer::test_normalize_filename_with_extension -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py -v --tb=no -q)",
+      "Bash(venv/Scripts/pytest.exe tests/integration/test_file_operations_integration.py -v)"
     ],
     "deny": [],
     "ask": [],
