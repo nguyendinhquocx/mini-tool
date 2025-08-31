@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from tkinterdnd2 import TkinterDnD
 from typing import Optional, Callable, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
@@ -38,6 +39,11 @@ class ApplicationState:
     undo_button_tooltip: str = "No operation to undo"
     undo_disabled_reason: Optional[str] = None
     files_modified_externally: List[str] = field(default_factory=list)
+    
+    # Drag-Drop State
+    is_drag_active: bool = False
+    drag_drop_valid: bool = False
+    pending_folder_drop: Optional[str] = None
 
 
 class StateManager:
@@ -64,12 +70,15 @@ class MainWindow:
         self.root = None
         self.state_manager = StateManager()
         self.components = {}
+        self.drag_drop_handler = None
         self._setup_window()
         self._setup_layout()
         self._create_menu()
+        self._setup_drag_drop_handling()
 
     def _setup_window(self):
-        self.root = tk.Tk()
+        # Initialize TkinterDnD before creating Tk root
+        self.root = TkinterDnD.Tk()
         self.root.title("File Rename Tool")
         self.root.minsize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
         
@@ -137,6 +146,106 @@ class MainWindow:
 
         # Bind keyboard shortcuts
         self.root.bind('<Control-q>', lambda e: self._on_exit())
+    
+    def _setup_drag_drop_handling(self):
+        """Configure window to accept drag-and-drop operations"""
+        try:
+            from .components.drag_drop_handler import DragDropHandler
+            from ..core.services.validation_service import get_drag_drop_validator
+            
+            # Get specialized drag-drop validator
+            drag_validator = get_drag_drop_validator()
+            
+            # Create drag-drop handler for main content frame
+            self.drag_drop_handler = DragDropHandler(
+                target_widget=self.content_frame,
+                on_folder_dropped=self.handle_folder_drop,
+                validation_callback=self._validate_dropped_folder,
+                drag_drop_validator=drag_validator
+            )
+            
+            # Update state to indicate drag-drop is ready
+            self.state_manager.update_state(is_drag_active=False)
+            
+        except ImportError as e:
+            print(f"Warning: Drag-drop functionality not available: {e}")
+            self.drag_drop_handler = None
+        except Exception as e:
+            print(f"Error setting up drag-drop: {e}")
+            self.drag_drop_handler = None
+    
+    def handle_folder_drop(self, folder_path: str):
+        """Handle successful folder drop"""
+        try:
+            # Update application state
+            self.state_manager.update_state(
+                selected_folder=folder_path,
+                pending_folder_drop=None,
+                is_drag_active=False,
+                drag_drop_valid=False
+            )
+            
+            # If folder selector component exists, update it
+            if 'folder_selector' in self.components:
+                folder_selector = self.components['folder_selector']
+                if hasattr(folder_selector, 'set_folder_from_drag_drop'):
+                    folder_selector.set_folder_from_drag_drop(folder_path)
+                elif hasattr(folder_selector, 'set_folder'):
+                    folder_selector.set_folder(folder_path, "drag_drop")
+            
+            # Trigger file list refresh if file preview component exists
+            self._refresh_file_list_after_drop(folder_path)
+                    
+        except Exception as e:
+            print(f"Error handling folder drop: {e}")
+    
+    def _refresh_file_list_after_drop(self, folder_path: str):
+        """Trigger file list refresh after successful folder drop"""
+        try:
+            # If file preview component exists, refresh it
+            if 'file_preview' in self.components:
+                file_preview = self.components['file_preview']
+                if hasattr(file_preview, 'refresh_file_list'):
+                    file_preview.refresh_file_list()
+                elif hasattr(file_preview, 'scan_folder'):
+                    file_preview.scan_folder(folder_path)
+            
+            # If app controller exists, notify it
+            if 'app_controller' in self.components:
+                app_controller = self.components['app_controller']
+                if hasattr(app_controller, 'on_folder_selected'):
+                    app_controller.on_folder_selected(folder_path)
+                    
+        except Exception as e:
+            print(f"Error refreshing file list after drop: {e}")
+    
+    def _validate_dropped_folder(self, folder_path: str) -> bool:
+        """Validate dropped folder before processing"""
+        try:
+            import os
+            
+            # Basic validation
+            if not folder_path or not os.path.exists(folder_path):
+                return False
+            
+            if not os.path.isdir(folder_path):
+                return False
+            
+            if not os.access(folder_path, os.R_OK):
+                return False
+            
+            # Update drag state during validation
+            self.state_manager.update_state(
+                pending_folder_drop=folder_path,
+                drag_drop_valid=True
+            )
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error validating dropped folder: {e}")
+            self.state_manager.update_state(drag_drop_valid=False)
+            return False
 
     def _on_exit(self):
         self.root.quit()
@@ -166,5 +275,7 @@ class MainWindow:
             self.root.mainloop()
 
     def destroy(self):
+        if self.drag_drop_handler:
+            self.drag_drop_handler.destroy()
         if self.root:
             self.root.destroy()

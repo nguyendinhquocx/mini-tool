@@ -9,7 +9,7 @@ import os
 import re
 import unicodedata
 from pathlib import Path, PurePath
-from typing import List, Dict, Set, Optional, Tuple
+from typing import List, Dict, Set, Optional, Tuple, Any
 import logging
 
 from ..models.error_models import (
@@ -191,10 +191,13 @@ class FileNameValidator:
         # Check against existing names
         for name in target_names:
             lower_name = name.lower()
-            if any(existing.lower() == lower_name for existing in existing_names):
+            # Find existing files that would conflict (case-insensitive)
+            conflicting_existing = [existing for existing in existing_names if existing.lower() == lower_name]
+            if conflicting_existing:
                 if lower_name not in conflicts:
                     conflicts[lower_name] = []
-                conflicts[lower_name].append(name)
+                if name not in conflicts[lower_name]:  # Avoid duplicates
+                    conflicts[lower_name].append(name)
         
         return conflicts
     
@@ -576,6 +579,264 @@ class PreOperationValidator:
 _global_validator = PreOperationValidator()
 
 
+class DragDropFolderValidator:
+    """
+    Specialized validator for drag-and-drop folder operations
+    Extends existing validation with drag-drop specific checks
+    """
+    
+    def __init__(self, base_validator: PreOperationValidator = None):
+        """
+        Initialize with existing validator for integration
+        
+        Args:
+            base_validator: Existing PreOperationValidator instance
+        """
+        self.base_validator = base_validator or PreOperationValidator()
+    
+    def validate_dropped_folder(self, folder_path: str) -> ValidationResult:
+        """
+        Comprehensive validation for dropped folders
+        
+        Args:
+            folder_path: Path to dropped folder
+            
+        Returns:
+            ValidationResult with all validation checks
+        """
+        result = ValidationResult(is_valid=True)
+        
+        # Use base validator for directory access
+        access_result = self.base_validator.validate_directory_access(folder_path)
+        result.errors.extend(access_result.errors)
+        result.warnings.extend(access_result.warnings)
+        result.is_valid = result.is_valid and access_result.is_valid
+        
+        # Additional drag-drop specific validations
+        self._validate_folder_suitability(folder_path, result)
+        self._validate_network_location(folder_path, result)
+        self._validate_folder_size(folder_path, result)
+        self._check_previous_operations(folder_path, result)
+        
+        return result
+    
+    def validate_multiple_drops(self, paths: List[str]) -> Dict[str, ValidationResult]:
+        """
+        Handle validation of multiple dropped items (AC: 6)
+        
+        Args:
+            paths: List of dropped paths
+            
+        Returns:
+            Dictionary mapping paths to validation results
+        """
+        results = {}
+        
+        if not paths:
+            return results
+        
+        # Check for multiple folder drops - only allow one
+        folder_paths = [path for path in paths if os.path.isdir(path)]
+        file_paths = [path for path in paths if os.path.isfile(path)]
+        
+        for path in paths:
+            result = ValidationResult(is_valid=True)
+            
+            if os.path.isfile(path):
+                result.add_error(
+                    ValidationErrorCode.INVALID_CHARACTER,
+                    "Files are not accepted, only folders",
+                    "item_type",
+                    path,
+                    "Drag a folder instead of individual files"
+                )
+            elif len(folder_paths) > 1:
+                # Multiple folders dropped - use most recent (first in list)
+                if path == folder_paths[0]:
+                    folder_result = self.validate_dropped_folder(path)
+                    result.errors.extend(folder_result.errors)
+                    result.warnings.extend(folder_result.warnings)
+                    result.is_valid = folder_result.is_valid
+                    
+                    result.add_warning(
+                        ValidationErrorCode.INVALID_CHARACTER,
+                        "Multiple folders dropped - using the first one",
+                        "multiple_drops",
+                        path,
+                        "Drop one folder at a time for clearer selection"
+                    )
+                else:
+                    result.add_warning(
+                        ValidationErrorCode.INVALID_CHARACTER,
+                        "Folder ignored - using first dropped folder",
+                        "multiple_drops",
+                        path,
+                        "This folder was not selected"
+                    )
+            else:
+                # Single folder - validate normally
+                folder_result = self.validate_dropped_folder(path)
+                result.errors.extend(folder_result.errors)
+                result.warnings.extend(folder_result.warnings)
+                result.is_valid = folder_result.is_valid
+            
+            results[path] = result
+        
+        return results
+    
+    def get_error_recovery_suggestions(self, validation_result: ValidationResult) -> List[Dict[str, str]]:
+        """
+        Provide recovery suggestions for validation errors
+        
+        Args:
+            validation_result: Failed validation result
+            
+        Returns:
+            List of recovery options with actions and descriptions
+        """
+        suggestions = []
+        
+        for error in validation_result.errors:
+            if error.code == ValidationErrorCode.INVALID_CHARACTER:
+                if "not readable" in error.message or "not writable" in error.message:
+                    suggestions.append({
+                        'action': 'try_browse',
+                        'description': 'Try using Browse Dialog instead',
+                        'button_text': 'Browse for Folder'
+                    })
+                    suggestions.append({
+                        'action': 'run_as_admin',
+                        'description': 'Run application as Administrator',
+                        'button_text': 'Help'
+                    })
+                elif "not a directory" in error.message:
+                    suggestions.append({
+                        'action': 'try_parent',
+                        'description': 'Try dropping the parent folder instead',
+                        'button_text': 'Select Parent'
+                    })
+                elif "Files are not accepted" in error.message:
+                    suggestions.append({
+                        'action': 'try_browse',
+                        'description': 'Use Browse Dialog to select folder',
+                        'button_text': 'Browse for Folder'
+                    })
+                    
+        # Generic fallback
+        if not suggestions:
+            suggestions.append({
+                'action': 'retry_drop',
+                'description': 'Try dropping the folder again',
+                'button_text': 'Retry'
+            })
+            suggestions.append({
+                'action': 'try_browse',
+                'description': 'Use Browse Dialog instead',
+                'button_text': 'Browse for Folder'
+            })
+        
+        return suggestions
+    
+    def _validate_folder_suitability(self, folder_path: str, result: ValidationResult):
+        """Check if folder is suitable for file operations"""
+        try:
+            # Check if folder has any processable files
+            files = os.listdir(folder_path)
+            processable_files = [f for f in files if not f.startswith('.') and os.path.isfile(os.path.join(folder_path, f))]
+            
+            if not processable_files:
+                result.add_warning(
+                    ValidationErrorCode.INVALID_CHARACTER,
+                    "Folder contains no processable files",
+                    "folder_contents",
+                    folder_path,
+                    "Select a folder with files to rename"
+                )
+            elif len(processable_files) > 1000:
+                result.add_warning(
+                    ValidationErrorCode.TOO_LONG,
+                    f"Folder contains many files ({len(processable_files)}), processing may be slow",
+                    "folder_size",
+                    folder_path,
+                    "Consider processing in smaller batches"
+                )
+                
+        except OSError as e:
+            result.add_error(
+                ValidationErrorCode.INVALID_CHARACTER,
+                f"Cannot analyze folder contents: {str(e)}",
+                "folder_access",
+                folder_path,
+                "Check folder permissions and try again"
+            )
+    
+    def _validate_network_location(self, folder_path: str, result: ValidationResult):
+        """Check for network drive issues"""
+        try:
+            # Check if path is on network drive (Windows UNC path)
+            if folder_path.startswith(r'\\') or ':' not in folder_path:
+                result.add_warning(
+                    ValidationErrorCode.INVALID_CHARACTER,
+                    "Folder is on network drive - operations may be slower",
+                    "network_location",
+                    folder_path,
+                    "Ensure stable network connection during operations"
+                )
+                
+        except Exception:
+            # Non-critical check, continue
+            pass
+    
+    def _validate_folder_size(self, folder_path: str, result: ValidationResult):
+        """Check folder size for performance warnings"""
+        try:
+            # Quick size estimation
+            file_count = 0
+            for root, dirs, files in os.walk(folder_path):
+                file_count += len(files)
+                if file_count > 100:  # Stop counting at reasonable limit for warning
+                    break
+            
+            if file_count > 500:
+                result.add_warning(
+                    ValidationErrorCode.TOO_LONG,
+                    f"Large folder detected (~{file_count}+ files) - consider processing in batches",
+                    "folder_size",
+                    folder_path,
+                    "Large operations may take significant time"
+                )
+                
+        except Exception:
+            # Non-critical check
+            pass
+    
+    def _check_previous_operations(self, folder_path: str, result: ValidationResult):
+        """Check for signs of previous rename operations"""
+        try:
+            # Look for common patterns that suggest previous operations
+            files = os.listdir(folder_path)
+            
+            # Check for numbered sequences that might indicate previous batch renames
+            numbered_files = [f for f in files if any(char.isdigit() for char in f)]
+            if len(numbered_files) > len(files) * 0.8:  # More than 80% have numbers
+                result.add_warning(
+                    ValidationErrorCode.INVALID_CHARACTER,
+                    "Folder appears to contain previously renamed files",
+                    "previous_operations",
+                    folder_path,
+                    "Review file names before applying additional rename operations"
+                )
+                
+        except Exception:
+            # Non-critical check
+            pass
+
+
 def get_validator() -> PreOperationValidator:
     """Get the global pre-operation validator"""
     return _global_validator
+
+
+def get_drag_drop_validator() -> DragDropFolderValidator:
+    """Get specialized drag-drop folder validator"""
+    return DragDropFolderValidator(_global_validator)

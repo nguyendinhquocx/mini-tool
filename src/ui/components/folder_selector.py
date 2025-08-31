@@ -11,6 +11,9 @@ class FolderSelectorComponent:
         self.folder_path = tk.StringVar()
         self.folder_path.trace('w', self._on_folder_changed)
         self.setup_ui()
+        
+        # Track last selection method for UI feedback
+        self.last_selection_method = "none"  # "browse", "drag_drop", or "none"
 
     def setup_ui(self):
         # Container frame
@@ -54,8 +57,9 @@ class FolderSelectorComponent:
             
             if folder_path:
                 if self._validate_folder(folder_path):
+                    self.last_selection_method = "browse"
                     self.folder_path.set(folder_path)
-                    self._update_status(f"Selected: {os.path.basename(folder_path)}", "green")
+                    self._update_status(f"Browsed: {os.path.basename(folder_path)}", "green")
                 else:
                     self._update_status("Selected folder is not accessible", "red")
         except Exception as e:
@@ -88,17 +92,54 @@ class FolderSelectorComponent:
         path = self.folder_path.get()
         return path if path else None
 
-    def set_folder(self, folder_path: str):
+    def set_folder(self, folder_path: str, method: str = "external"):
+        """
+        Set folder programmatically (from drag-drop or other sources)
+        
+        Args:
+            folder_path: Path to set
+            method: Selection method ("drag_drop", "browse", "external")
+        """
         if self._validate_folder(folder_path):
+            self.last_selection_method = method
             self.folder_path.set(folder_path)
-            self._update_status(f"Set: {os.path.basename(folder_path)}", "green")
+            
+            # Update status based on selection method
+            if method == "drag_drop":
+                self._update_status(f"Dropped: {os.path.basename(folder_path)} 🎯", "green")
+            elif method == "browse":
+                self._update_status(f"Browsed: {os.path.basename(folder_path)}", "green")
+            else:
+                self._update_status(f"Set: {os.path.basename(folder_path)}", "green")
         else:
             self.handle_error(f"Invalid folder path: {folder_path}")
+    
+    def set_folder_from_drag_drop(self, folder_path: str):
+        """
+        Convenience method for drag-drop integration
+        """
+        self.set_folder(folder_path, "drag_drop")
 
     def clear_selection(self):
         self.folder_path.set("")
+        self.last_selection_method = "none"
         self._update_status("No folder selected", "gray")
 
+    def get_selection_method(self) -> str:
+        """
+        Get the method used for current selection
+        
+        Returns:
+            Selection method: "browse", "drag_drop", "external", or "none"
+        """
+        return self.last_selection_method
+    
+    def is_drag_drop_selection(self) -> bool:
+        """
+        Check if current selection was made via drag-drop
+        """
+        return self.last_selection_method == "drag_drop"
+    
     def handle_error(self, error: str):
         self._update_status(f"Error: {error}", "red")
         messagebox.showerror("Folder Selection Error", error)

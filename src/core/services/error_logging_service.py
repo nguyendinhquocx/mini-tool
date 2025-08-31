@@ -500,23 +500,33 @@ class ComprehensiveErrorLoggingService:
     def _collect_system_info(self) -> Dict[str, Any]:
         """Collect system information for logging"""
         import platform
-        import psutil
         
         try:
-            process = psutil.Process()
-            
-            return {
-                'platform': platform.system(),
-                'platform_version': platform.version(),
-                'python_version': platform.python_version(),
-                'memory_usage_mb': process.memory_info().rss / 1024 / 1024,
-                'cpu_usage_percent': process.cpu_percent(),
-                'thread_count': process.num_threads(),
-                'disk_usage': {
-                    'free_gb': psutil.disk_usage('.').free / 1024 / 1024 / 1024,
-                    'total_gb': psutil.disk_usage('.').total / 1024 / 1024 / 1024
+            # Try to import psutil, but handle gracefully if not available
+            try:
+                import psutil
+                process = psutil.Process()
+                
+                return {
+                    'platform': platform.system(),
+                    'platform_version': platform.version(),
+                    'python_version': platform.python_version(),
+                    'memory_usage_mb': process.memory_info().rss / 1024 / 1024,
+                    'cpu_usage_percent': process.cpu_percent(),
+                    'thread_count': process.num_threads(),
+                    'disk_usage': {
+                        'free_gb': psutil.disk_usage('.').free / 1024 / 1024 / 1024,
+                        'total_gb': psutil.disk_usage('.').total / 1024 / 1024 / 1024
+                    }
                 }
-            }
+            except ImportError:
+                # Fallback to basic system info if psutil not available
+                return {
+                    'platform': platform.system(),
+                    'platform_version': platform.version(),
+                    'python_version': platform.python_version(),
+                    'note': 'Limited system info - psutil not available'
+                }
         except Exception as e:
             return {
                 'platform': platform.system(),

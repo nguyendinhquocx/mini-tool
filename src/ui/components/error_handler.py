@@ -7,8 +7,8 @@ from tkinter import messagebox
 from typing import Optional, Callable
 import logging
 
-from ...core.models.error_models import ApplicationError, ValidationResult
-from ...core.utils.error_handler import ApplicationErrorException
+from src.core.models.error_models import ApplicationError, ValidationResult
+from src.core.utils.error_handler import ApplicationErrorException
 from .advanced_error_handler import AdvancedErrorHandler
 
 # Configure logging

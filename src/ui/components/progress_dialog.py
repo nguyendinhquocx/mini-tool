@@ -256,7 +256,8 @@ class EnhancedProgressDialog:
         
         # Update file
         if self.state.current_file:
-            file_name = self.state.current_file.split('\\\\')[-1]
+            # Handle both Windows and Unix path separators
+            file_name = self.state.current_file.split('\\')[-1].split('/')[-1]
             self.file_var.set(file_name)
         
         # Update time

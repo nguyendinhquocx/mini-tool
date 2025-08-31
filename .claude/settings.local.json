@@ -82,7 +82,13 @@
       "Bash(venvScriptspytest.exe tests/unit/test_file_preview.py -v --tb=short)",
       "Bash(venv/Scripts/pytest.exe tests/unit/test_progress_dialog_cancellation.py -v --tb=short)",
       "Bash(venv/Scripts/pytest.exe tests/unit/test_undo_service.py -v)",
-      "Bash(venv/Scripts/pytest.exe tests/unit/test_undo_service.py -v --tb=short)"
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_undo_service.py -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/ -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_progress_dialog_cancellation.py tests/unit/test_undo_service.py -v --tb=short)",
+      "Bash(taskkill:*)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_drag_drop_folder_support.py -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/integration/test_drag_drop_integration.py -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/ui/test_drag_drop_interface.py -v --tb=short)"
     ],
     "deny": [],
     "ask": [],
