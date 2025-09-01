@@ -128,7 +128,8 @@
       "Bash(venv/Scripts/pyinstaller.exe --onefile --name FileRenameTool --noconsole complete_app.py)",
       "Read(d:\\pcloud\\code\\window\\mini tool/**)",
       "Read(d:\\pcloud\\code\\window\\mini tool/**)",
-      "Read(d:\\pcloud\\code\\window\\mini tool\\src/**)"
+      "Read(d:\\pcloud\\code\\window\\mini tool\\src/**)",
+      "Read(d:\\pcloud\\code\\window\\mini tool/**)"
     ],
     "deny": [],
     "ask": [],

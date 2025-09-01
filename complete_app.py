@@ -690,7 +690,7 @@ class CompleteFileRenameApp:
         
         # UI Components
         self.folder_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="Select a folder to begin")
+        self.status_var = tk.StringVar(value="Chọn thư mục để bắt đầu")
         self.include_subfolders_var = tk.BooleanVar(value=False)
         self.max_depth_var = tk.IntVar(value=3)
         
@@ -714,7 +714,7 @@ class CompleteFileRenameApp:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Folder selection section với drag-drop visual
-        folder_frame = ttk.LabelFrame(main_frame, text="Folder Selection (Drag folders here or press Ctrl+O)", padding="10")
+        folder_frame = ttk.LabelFrame(main_frame, text="Chọn Thư Mục (Kéo thả thư mục vào đây hoặc nhấn Ctrl+O)", padding="10")
         folder_frame.pack(fill=tk.X, pady=(0, 10))
         folder_frame.columnconfigure(1, weight=1)
         
@@ -724,16 +724,16 @@ class CompleteFileRenameApp:
         except:
             folder_frame.configure(relief='flat')
         
-        ttk.Label(folder_frame, text="Folder:").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
+        ttk.Label(folder_frame, text="Thư mục:").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
         
         self.folder_entry = ttk.Entry(folder_frame, textvariable=self.folder_var, state="readonly")
         self.folder_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(0, 5))
         
-        self.browse_button = ttk.Button(folder_frame, text="Browse", command=self.browse_folder)
+        self.browse_button = ttk.Button(folder_frame, text="Duyệt", command=self.browse_folder)
         self.browse_button.grid(row=0, column=2)
         
         # Recent folders dropdown
-        ttk.Label(folder_frame, text="Recent:").grid(row=1, column=0, padx=(0, 5), sticky=tk.W, pady=(5, 0))
+        ttk.Label(folder_frame, text="Gần đây:").grid(row=1, column=0, padx=(0, 5), sticky=tk.W, pady=(5, 0))
         
         self.recent_combo = ttk.Combobox(folder_frame, state="readonly")
         self.recent_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(0, 5), pady=(5, 0))
@@ -745,14 +745,14 @@ class CompleteFileRenameApp:
         
         self.include_subfolders_cb = ttk.Checkbutton(
             options_frame, 
-            text="Include subfolders", 
+            text="Bao gồm thư mục con", 
             variable=self.include_subfolders_var,
             command=self.on_subfolder_option_changed
         )
         self.include_subfolders_cb.pack(side=tk.LEFT)
         
         # Depth limit
-        ttk.Label(options_frame, text="Max depth:").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Label(options_frame, text="Độ sâu tối đa:").pack(side=tk.LEFT, padx=(20, 5))
         depth_spin = ttk.Spinbox(
             options_frame, 
             from_=1, 
@@ -764,19 +764,19 @@ class CompleteFileRenameApp:
         depth_spin.pack(side=tk.LEFT)
         
         # File preview section with enhanced info
-        preview_frame = ttk.LabelFrame(main_frame, text="File Rename Preview", padding="10")
+        preview_frame = ttk.LabelFrame(main_frame, text="Xem Trước Đổi Tên File", padding="10")
         preview_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         # Preview toolbar
         toolbar_frame = ttk.Frame(preview_frame)
         toolbar_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Button(toolbar_frame, text="Refresh", command=self.refresh_preview).pack(side=tk.LEFT)
-        ttk.Button(toolbar_frame, text="Select All", command=self.select_all).pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Button(toolbar_frame, text="Deselect All", command=self.deselect_all).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Button(toolbar_frame, text="Làm Mới", command=self.refresh_preview).pack(side=tk.LEFT)
+        ttk.Button(toolbar_frame, text="Chọn Tất Cả", command=self.select_all).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Button(toolbar_frame, text="Bỏ Chọn Tất Cả", command=self.deselect_all).pack(side=tk.LEFT, padx=(5, 0))
         
         # File count label
-        self.file_count_var = tk.StringVar(value="No files loaded")
+        self.file_count_var = tk.StringVar(value="Chưa tải file nào")
         ttk.Label(toolbar_frame, textvariable=self.file_count_var).pack(side=tk.RIGHT)
         
         # Create container frame for tree and scrollbars
@@ -789,10 +789,10 @@ class CompleteFileRenameApp:
         
         # Configure columns
         self.tree.heading('selected', text='✓')
-        self.tree.heading('current', text='Current Name')
-        self.tree.heading('new', text='New Name (Normalized)')
-        self.tree.heading('status', text='Status')
-        self.tree.heading('size', text='Size')
+        self.tree.heading('current', text='Tên Hiện Tại')
+        self.tree.heading('new', text='Tên Mới (Chuẩn Hóa)')
+        self.tree.heading('status', text='Trạng Thái')
+        self.tree.heading('size', text='Kích Thước')
         
         self.tree.column('selected', width=30, anchor='center')
         self.tree.column('current', width=250)
@@ -827,19 +827,19 @@ class CompleteFileRenameApp:
         button_frame = ttk.Frame(action_frame)
         button_frame.pack(side=tk.RIGHT)
         
-        self.rename_button = ttk.Button(button_frame, text="Rename Selected Files", 
+        self.rename_button = ttk.Button(button_frame, text="Đổi Tên File Đã Chọn", 
                                        command=self.rename_files, state="disabled")
         self.rename_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.undo_button = ttk.Button(button_frame, text="Undo Last Operation", 
+        self.undo_button = ttk.Button(button_frame, text="Hoàn Tác Thao Tác Cuối", 
                                      command=self.undo_last, state="disabled")
         self.undo_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.export_button = ttk.Button(button_frame, text="Export List", 
+        self.export_button = ttk.Button(button_frame, text="Xuất Danh Sách", 
                                        command=self.export_preview)
         self.export_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.settings_button = ttk.Button(button_frame, text="Settings", 
+        self.settings_button = ttk.Button(button_frame, text="Cài Đặt", 
                                          command=self.show_settings)
         self.settings_button.pack(side=tk.LEFT)
     
@@ -1054,7 +1054,7 @@ Double-click Toggle file selection
             return
         
         self.current_folder = folder_path
-        self.status_var.set("Loading files...")
+        self.status_var.set("Đang tải danh sách file...")
         self.rename_button.config(state="disabled")
         
         # Force UI update before processing
@@ -1183,12 +1183,12 @@ Double-click Toggle file selection
                     
                     try:
                         normalized = self.normalizer.normalize_filename(filename)
-                        status = "Ready" if filename != normalized else "No change"
+                        status = "Sẵn sàng" if filename != normalized else "Không đổi"
                         
                         # Check for conflicts within the same directory
                         existing_files = [f[0] for f in files if (len(f) >= 3 and f[2] == relative_path) or (len(f) == 2 and relative_path == "")]
                         if normalized != filename and normalized in existing_files:
-                            status = "Conflict!"
+                            status = "Trùng tên!"
                         
                         # Format file size
                         if size < 1024:
@@ -1220,7 +1220,7 @@ Double-click Toggle file selection
                             'selected': False,
                             'current': display_current,
                             'new': display_current,
-                            'status': f"Error: {str(e)[:20]}",
+                            'status': f"Lỗi: {str(e)[:20]}",
                             'size': "0 B",
                             'changed': False,
                             'filename': filename,
@@ -1232,7 +1232,7 @@ Double-click Toggle file selection
                 # Update progress
                 progress = ((i + batch_size) / len(files)) * 100
                 self.root.after(0, lambda p=progress: 
-                              self.status_var.set(f"Processing... {min(p, 100):.0f}%"))
+                              self.status_var.set(f"Đang xử lý... {min(p, 100):.0f}%"))
             
             # Update UI in main thread
             processing_time = time.time() - start_time
@@ -1256,7 +1256,7 @@ Double-click Toggle file selection
             for item in preview_data:
                 # Color code based on status
                 tags = []
-                if item['status'] == "Conflict!":
+                if item['status'] == "Trùng tên!":
                     tags = ['conflict']
                 elif item['changed'] and item['selected']:
                     tags = ['changed']
@@ -1278,9 +1278,9 @@ Double-click Toggle file selection
             # Update status and buttons
             total = len(preview_data)
             time_info = f" (processed in {processing_time:.1f}s)" if processing_time > 0.1 else ""
-            self.status_var.set(f"Found {total} files, {changes_count} need renaming, {selected_count} selected{time_info}")
+            self.status_var.set(f"Tìm thấy {total} file, {changes_count} cần đổi tên, {selected_count} đã chọn{time_info}")
             
-            self.file_count_var.set(f"{selected_count}/{total} files selected")
+            self.file_count_var.set(f"{selected_count}/{total} file đã chọn")
             
             self.rename_button.config(state="normal" if selected_count > 0 and changes_count > 0 else "disabled")
             
@@ -1304,7 +1304,7 @@ Double-click Toggle file selection
                 
                 # Update tags
                 if self.preview_data[item_index]['selected']:
-                    if self.preview_data[item_index]['status'] == "Conflict!":
+                    if self.preview_data[item_index]['status'] == "Trùng tên!":
                         self.tree.item(item, tags=['conflict'])
                     elif self.preview_data[item_index]['changed']:
                         self.tree.item(item, tags=['changed'])
@@ -1347,7 +1347,7 @@ Double-click Toggle file selection
             changes_count = sum(1 for item in self.preview_data if item['changed'] and item['selected'])
             total = len(self.preview_data)
             
-            self.file_count_var.set(f"{selected_count}/{total} files selected")
+            self.file_count_var.set(f"{selected_count}/{total} file đã chọn")
             self.rename_button.config(state="normal" if changes_count > 0 else "disabled")
     
     def rename_files(self):
@@ -1357,29 +1357,29 @@ Double-click Toggle file selection
         
         # Get selected files to rename
         files_to_rename = [item for item in self.preview_data 
-                          if item['selected'] and item['changed'] and item['status'] != "Conflict!"]
+                          if item['selected'] and item['changed'] and item['status'] != "Trùng tên!"]
         
         if not files_to_rename:
-            messagebox.showinfo("Info", "No files selected for renaming.")
+            messagebox.showinfo("Thông báo", "Không có file nào được chọn để đổi tên.")
             return
         
         # Show conflicts warning
         conflicts = [item for item in self.preview_data 
-                    if item['selected'] and item['status'] == "Conflict!"]
+                    if item['selected'] and item['status'] == "Trùng tên!"]
         if conflicts:
             result = messagebox.askyesno(
-                "Conflicts Detected",
-                f"Found {len(conflicts)} files with naming conflicts that will be skipped.\n\n"
-                f"Continue with renaming {len(files_to_rename)} files?"
+                "Phát hiện xung đột",
+                f"Tìm thấy {len(conflicts)} file có xung đột tên sẽ được bỏ qua.\n\n"
+                f"Tiếp tục đổi tên {len(files_to_rename)} file?"
             )
             if not result:
                 return
         
         # Confirm operation
         result = messagebox.askyesno(
-            "Confirm Rename", 
-            f"Rename {len(files_to_rename)} selected files?\n\n"
-            f"This action can be undone using 'Undo Last Operation'."
+            "Xác nhận đổi tên", 
+            f"Đổi tên {len(files_to_rename)} file đã chọn?\n\n"
+            f"Thao tác này có thể hoàn tác bằng 'Hoàn Tác Thao Tác Cuối'."
         )
         
         if not result:
@@ -1387,7 +1387,7 @@ Double-click Toggle file selection
         
         # Show enhanced progress dialog
         progress = ProgressDialog(self.root)
-        progress.show("Renaming Files", len(files_to_rename))
+        progress.show("Đang Đổi Tên File", len(files_to_rename))
         
         # Execute in background
         def rename_operation():
@@ -1448,7 +1448,7 @@ Double-click Toggle file selection
             
             # Update progress với detailed info
             percentage = ((i + 1) / total) * 100
-            status = f"Processing {item['current'][:30]}..."
+            status = f"Đang xử lý {item['current'][:30]}..."
             self.root.after(0, lambda p=percentage, s=status, c=i+1, t=total: 
                           progress.update_progress(p, s, c, t))
         
@@ -1465,12 +1465,12 @@ Double-click Toggle file selection
     def after_rename_operation(self, success_count: int, failed_count: int, total: int):
         """Handle post-rename operations với detailed results"""
         if failed_count > 0:
-            messagebox.showwarning("Operation Complete with Errors", 
-                                 f"Renamed {success_count} of {total} files successfully.\n"
-                                 f"{failed_count} files failed to rename.")
+            messagebox.showwarning("Hoàn thành với lỗi", 
+                                 f"Đổi tên thành công {success_count}/{total} file.\n"
+                                 f"{failed_count} file không thể đổi tên.")
         else:
-            messagebox.showinfo("Operation Complete", 
-                              f"Successfully renamed {success_count} files.")
+            messagebox.showinfo("Hoàn thành", 
+                              f"Đã đổi tên thành công {success_count} file.")
         
         # Enable undo button
         self.undo_button.config(state="normal")
@@ -1621,14 +1621,14 @@ Double-click Toggle file selection
         for item in self.tree.get_children():
             self.tree.delete(item)
         self.preview_data = []
-        self.status_var.set("No folder selected")
-        self.file_count_var.set("No files loaded")
+        self.status_var.set("Chưa chọn thư mục")
+        self.file_count_var.set("Chưa tải file nào")
         self.rename_button.config(state="disabled")
     
     def show_error(self, message: str):
         """Show error message"""
-        messagebox.showerror("Error", message)
-        self.status_var.set("Error occurred")
+        messagebox.showerror("Lỗi", message)
+        self.status_var.set("Đã xảy ra lỗi")
     
     def on_closing(self):
         """Handle application closing"""
