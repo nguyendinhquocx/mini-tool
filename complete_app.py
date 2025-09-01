@@ -813,7 +813,9 @@ class CompleteFileRenameApp:
         tree_container.rowconfigure(0, weight=1)
         
         # Bind tree events
-        self.tree.bind('<Double-1>', self.toggle_selection)
+        self.tree.bind('<Double-1>', self.on_double_click)
+        self.tree.bind('<KeyPress-F2>', self.on_edit_key)
+        self.tree.bind('<Button-3>', self.on_right_click)  # Right-click context menu
         
         # Status and action section
         action_frame = ttk.Frame(main_frame)
@@ -1210,7 +1212,9 @@ Double-click Toggle file selection
                             'size': size_str,
                             'changed': filename != normalized,
                             'filename': filename,  # Store original filename for processing
-                            'relative_path': relative_path  # Store relative path for processing
+                            'relative_path': relative_path,  # Store relative path for processing
+                            'custom_name': None,  # Track manual edits
+                            'is_manual': False  # Flag for manual vs auto normalization
                         })
                         
                     except Exception as e:
@@ -1224,7 +1228,9 @@ Double-click Toggle file selection
                             'size': "0 B",
                             'changed': False,
                             'filename': filename,
-                            'relative_path': relative_path
+                            'relative_path': relative_path,
+                            'custom_name': None,
+                            'is_manual': False
                         })
                 
                 preview_data.extend(batch_preview)
@@ -1258,6 +1264,8 @@ Double-click Toggle file selection
                 tags = []
                 if item['status'] == "Trùng tên!":
                     tags = ['conflict']
+                elif item.get('is_manual', False) and item['selected']:
+                    tags = ['manual']  # Manual edits get blue background
                 elif item['changed'] and item['selected']:
                     tags = ['changed']
                 elif not item['selected']:
@@ -1273,6 +1281,7 @@ Double-click Toggle file selection
             # Configure tags with colors
             self.tree.tag_configure('conflict', background='#ffcccc')
             self.tree.tag_configure('changed', background='#ccffcc')
+            self.tree.tag_configure('manual', background='#cceeff')  # Light blue for manual edits
             self.tree.tag_configure('deselected', foreground='gray')
             
             # Update status and buttons
@@ -1306,6 +1315,8 @@ Double-click Toggle file selection
                 if self.preview_data[item_index]['selected']:
                     if self.preview_data[item_index]['status'] == "Trùng tên!":
                         self.tree.item(item, tags=['conflict'])
+                    elif self.preview_data[item_index].get('is_manual', False):
+                        self.tree.item(item, tags=['manual'])
                     elif self.preview_data[item_index]['changed']:
                         self.tree.item(item, tags=['changed'])
                     else:
@@ -1315,6 +1326,251 @@ Double-click Toggle file selection
                 
                 # Update counters
                 self.update_counters()
+    
+    def on_double_click(self, event):
+        """Handle double-click events - toggle selection or edit"""
+        region = self.tree.identify("region", event.x, event.y)
+        if region == "cell":
+            column = self.tree.identify_column(event.x, event.y)
+            # Column #3 is "new" (0-based: selected, current, new, status, size)
+            if column == "#3":  # "new" column
+                item = self.tree.identify('item', event.x, event.y)
+                if item:
+                    self.edit_filename(item)
+                return
+        
+        # Fall back to toggle selection
+        self.toggle_selection(event)
+    
+    def on_edit_key(self, event):
+        """Handle F2 key press for editing"""
+        selection = self.tree.selection()
+        if selection:
+            self.edit_filename(selection[0])
+    
+    def edit_filename(self, item):
+        """Start editing filename for given item"""
+        if not item or not self.preview_data:
+            return
+        
+        try:
+            item_index = self.tree.index(item)
+            if not (0 <= item_index < len(self.preview_data)):
+                return
+                
+            data_item = self.preview_data[item_index]
+            
+            # Don't edit if there's an error
+            if "Lỗi:" in data_item['status']:
+                return
+                
+            # Get current position in tree
+            bbox = self.tree.bbox(item, column="new")
+            if not bbox:
+                return
+                
+            # Create edit popup
+            self.show_edit_popup(item, item_index, bbox, data_item)
+            
+        except Exception as e:
+            print(f"Error starting edit: {e}")
+    
+    def show_edit_popup(self, item, item_index, bbox, data_item):
+        """Show popup entry for editing filename"""
+        x, y, width, height = bbox
+        
+        # Create popup frame
+        popup = tk.Toplevel(self.root)
+        popup.wm_overrideredirect(True)
+        
+        # Position popup over the cell
+        tree_x = self.tree.winfo_rootx()
+        tree_y = self.tree.winfo_rooty()
+        popup.geometry(f"{width}x{height}+{tree_x + x}+{tree_y + y}")
+        
+        # Get current filename (without path for editing) - separate name and extension
+        original_filename = data_item['filename']
+        name_part, ext_part = os.path.splitext(original_filename)
+        
+        # For editing, show only the name part (without extension)
+        if data_item.get('custom_name'):
+            # If there's a custom name, extract just the name part
+            custom_name_part, _ = os.path.splitext(data_item['custom_name'])
+            current_name = custom_name_part
+        else:
+            current_name = name_part
+        
+        # Create frame for entry and extension label
+        edit_frame = tk.Frame(popup)
+        edit_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create entry widget
+        entry = tk.Entry(edit_frame, borderwidth=1, highlightthickness=1)
+        entry.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        entry.insert(0, current_name)
+        entry.select_range(0, tk.END)
+        entry.focus_set()
+        
+        # Show extension as label (non-editable)
+        if ext_part:
+            ext_label = tk.Label(edit_frame, text=ext_part, fg='gray')
+            ext_label.pack(side=tk.RIGHT)
+        
+        def save_edit():
+            new_name = entry.get().strip()
+            popup.destroy()
+            if new_name and new_name != current_name:
+                # Auto-append the original extension
+                new_name_with_ext = new_name + ext_part
+                self.apply_manual_edit(item_index, new_name_with_ext, ext_part)
+        
+        def cancel_edit():
+            popup.destroy()
+        
+        # Bind events
+        entry.bind('<Return>', lambda e: save_edit())
+        entry.bind('<Escape>', lambda e: cancel_edit())
+        entry.bind('<FocusOut>', lambda e: save_edit())
+    
+    def apply_manual_edit(self, item_index, new_name, original_ext=""):
+        """Apply manual filename edit with validation"""
+        if not (0 <= item_index < len(self.preview_data)):
+            return
+            
+        data_item = self.preview_data[item_index]
+        
+        # Validate filename (now includes extension)
+        validation_result = self.validate_filename(new_name, data_item, item_index)
+        if not validation_result['valid']:
+            messagebox.showerror("Tên File Không Hợp Lệ", validation_result['message'])
+            return
+        
+        # Ensure extension is preserved
+        original_name, original_ext = os.path.splitext(data_item['filename'])
+        new_name_part, new_ext = os.path.splitext(new_name)
+        
+        # If user didn't specify extension, use original
+        if not new_ext and original_ext:
+            new_name = new_name_part + original_ext
+        
+        # Apply the edit
+        relative_path = data_item['relative_path']
+        if relative_path:
+            display_new = os.path.join(relative_path, new_name)
+        else:
+            display_new = new_name
+            
+        # Update data
+        data_item['custom_name'] = new_name
+        data_item['new'] = display_new
+        data_item['is_manual'] = True
+        data_item['changed'] = new_name != data_item['filename']
+        data_item['status'] = "Tùy chỉnh" if data_item['changed'] else "Không đổi"
+        
+        # Refresh display
+        self.refresh_display()
+        
+    def validate_filename(self, name, data_item, item_index):
+        """Validate filename for safety and conflicts"""
+        if not name.strip():
+            return {'valid': False, 'message': "Tên file không được để trống"}
+        
+        # Check for invalid characters
+        invalid_chars = '<>:"/\\|?*'
+        if any(char in name for char in invalid_chars):
+            return {'valid': False, 'message': f"Tên file chứa ký tự không hợp lệ: {invalid_chars}"}
+        
+        # Check for reserved names (Windows)
+        reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9']
+        name_base = name.split('.')[0].upper()
+        if name_base in reserved_names:
+            return {'valid': False, 'message': f"'{name_base}' là tên file hệ thống không được phép"}
+        
+        # Ensure extension is preserved for validation
+        original_name, original_ext = os.path.splitext(data_item['filename'])
+        name_part, ext_part = os.path.splitext(name)
+        
+        # If no extension provided, add original extension
+        if not ext_part and original_ext:
+            name = name_part + original_ext
+        
+        # Check for conflicts with other files in same directory
+        relative_path = data_item['relative_path']
+        for i, other_item in enumerate(self.preview_data):
+            if i == item_index:  # Skip self
+                continue
+            if other_item['relative_path'] == relative_path:  # Same directory
+                other_new_name = other_item.get('custom_name') or self.normalizer.normalize_filename(other_item['filename'])
+                if other_new_name.lower() == name.lower():
+                    return {'valid': False, 'message': f"Tên file trùng với file khác trong cùng thư mục: '{other_new_name}'"}
+        
+        # Check for conflict with existing files on disk (basic check)
+        full_path = os.path.join(self.current_folder, relative_path, name) if relative_path else os.path.join(self.current_folder, name)
+        original_path = os.path.join(self.current_folder, relative_path, data_item['filename']) if relative_path else os.path.join(self.current_folder, data_item['filename'])
+        
+        if os.path.exists(full_path) and full_path.lower() != original_path.lower():
+            return {'valid': False, 'message': f"File đã tồn tại trên đĩa: '{name}'"}
+        
+        return {'valid': True, 'message': ''}
+    
+    def on_right_click(self, event):
+        """Handle right-click for context menu"""
+        item = self.tree.identify('item', event.x, event.y)
+        if item:
+            # Select the item
+            self.tree.selection_set(item)
+            
+            # Create context menu
+            context_menu = tk.Menu(self.root, tearoff=0)
+            context_menu.add_command(label="Chỉnh Sửa Tên (F2)", command=lambda: self.edit_filename(item))
+            context_menu.add_separator()
+            
+            # Check if this item has manual edit
+            item_index = self.tree.index(item)
+            if 0 <= item_index < len(self.preview_data):
+                data_item = self.preview_data[item_index]
+                if data_item.get('is_manual', False):
+                    context_menu.add_command(label="Khôi Phục Tự Động", 
+                                           command=lambda: self.reset_to_auto(item_index))
+            
+            # Show context menu
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
+    
+    def reset_to_auto(self, item_index):
+        """Reset filename to automatic normalization"""
+        if not (0 <= item_index < len(self.preview_data)):
+            return
+            
+        data_item = self.preview_data[item_index]
+        
+        # Reset to automatic normalization
+        normalized = self.normalizer.normalize_filename(data_item['filename'])
+        relative_path = data_item['relative_path']
+        
+        if relative_path:
+            display_new = os.path.join(relative_path, normalized)
+        else:
+            display_new = normalized
+            
+        # Update data
+        data_item['custom_name'] = None
+        data_item['new'] = display_new
+        data_item['is_manual'] = False
+        data_item['changed'] = data_item['filename'] != normalized
+        data_item['status'] = "Sẵn sàng" if data_item['changed'] else "Không đổi"
+        
+        # Re-check for conflicts
+        existing_files = [item.get('custom_name') or self.normalizer.normalize_filename(item['filename']) 
+                         for i, item in enumerate(self.preview_data) 
+                         if i != item_index and item['relative_path'] == relative_path]
+        if normalized != data_item['filename'] and normalized in existing_files:
+            data_item['status'] = "Trùng tên!"
+        
+        # Refresh display
+        self.refresh_display()
     
     def select_all(self):
         """Select all files"""
@@ -1422,7 +1678,8 @@ Double-click Toggle file selection
                 if 'relative_path' in item and item['relative_path']:
                     # File in subdirectory
                     old_filename = item['filename']
-                    new_filename = self.normalizer.normalize_filename(old_filename)
+                    # Use custom name if available, otherwise normalize
+                    new_filename = item.get('custom_name') or self.normalizer.normalize_filename(old_filename)
                     
                     old_path = os.path.join(self.current_folder, item['relative_path'], old_filename)
                     new_path = os.path.join(self.current_folder, item['relative_path'], new_filename)
