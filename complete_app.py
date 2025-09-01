@@ -336,7 +336,7 @@ class SettingsDialog:
         
     def show(self):
         self.dialog = tk.Toplevel(self.parent)
-        self.dialog.title("Settings & Preferences")
+        self.dialog.title("Cài Đặt & Tùy Chỉnh")
         self.dialog.geometry("500x600")
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
@@ -353,29 +353,29 @@ class SettingsDialog:
         
         # Normalization tab
         norm_frame = ttk.Frame(notebook)
-        notebook.add(norm_frame, text="Normalization")
+        notebook.add(norm_frame, text="Chuẩn Hóa")
         self.create_normalization_tab(norm_frame)
         
         # UI Preferences tab
         ui_frame = ttk.Frame(notebook)
-        notebook.add(ui_frame, text="Interface")
+        notebook.add(ui_frame, text="Giao Diện")
         self.create_ui_tab(ui_frame)
         
         # Performance tab
         perf_frame = ttk.Frame(notebook)
-        notebook.add(perf_frame, text="Performance")
+        notebook.add(perf_frame, text="Hiệu Năng")
         self.create_performance_tab(perf_frame)
         
         # Buttons
         button_frame = ttk.Frame(self.dialog)
         button_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        ttk.Button(button_frame, text="Reset to Defaults", 
+        ttk.Button(button_frame, text="Khôi Phục Mặc Định", 
                   command=self.reset_defaults).pack(side=tk.LEFT)
         
-        ttk.Button(button_frame, text="Cancel", 
+        ttk.Button(button_frame, text="Hủy", 
                   command=self.cancel).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(button_frame, text="Apply", 
+        ttk.Button(button_frame, text="Áp Dụng", 
                   command=self.apply).pack(side=tk.RIGHT, padx=(5, 0))
         ttk.Button(button_frame, text="OK", 
                   command=self.ok).pack(side=tk.RIGHT)
@@ -388,11 +388,11 @@ class SettingsDialog:
         self.norm_vars = {}
         
         options = [
-            ("remove_diacritics", "Remove Vietnamese diacritics (ủ → u, đ → d)"),
-            ("lowercase_conversion", "Convert to lowercase"),
-            ("clean_special_chars", "Clean special characters"),
-            ("normalize_whitespace", "Normalize whitespace"),
-            ("preserve_extensions", "Preserve file extensions")
+            ("remove_diacritics", "Loại bỏ dấu tiếng Việt (ủ → u, đ → d)"),
+            ("lowercase_conversion", "Chuyển thành chữ thường"),
+            ("clean_special_chars", "Loại bỏ ký tự đặc biệt"),
+            ("normalize_whitespace", "Chuẩn hóa khoảng trắng"),
+            ("preserve_extensions", "Giữ nguyên phần mở rộng file")
         ]
         
         for i, (key, label) in enumerate(options):
@@ -403,7 +403,7 @@ class SettingsDialog:
             )
         
         # Custom replacements
-        ttk.Label(parent, text="Custom Character Replacements:").pack(
+        ttk.Label(parent, text="Thay Thế Ký Tự Tùy Chỉnh:").pack(
             anchor=tk.W, padx=10, pady=(20, 5)
         )
         
@@ -459,7 +459,7 @@ class SettingsDialog:
         ttk.Entry(parent, textvariable=self.max_files_var).pack(anchor=tk.W, padx=20, pady=5)
         
         # Batch size
-        ttk.Label(parent, text="Processing batch size:").pack(anchor=tk.W, padx=10, pady=(20, 5))
+        ttk.Label(parent, text="Kích thước lô xử lý:").pack(anchor=tk.W, padx=10, pady=(20, 5))
         self.batch_size_var = tk.IntVar(value=config.get("batch_size", 100))
         ttk.Entry(parent, textvariable=self.batch_size_var).pack(anchor=tk.W, padx=20, pady=5)
         
@@ -470,8 +470,8 @@ class SettingsDialog:
     
     def reset_defaults(self):
         """Reset all settings to defaults"""
-        result = messagebox.askyesno("Reset Settings", 
-                                    "Reset all settings to default values?")
+        result = messagebox.askyesno("Khôi Phục Cài Đặt", 
+                                    "Khôi phục tất cả cài đặt về giá trị mặc định?")
         if result:
             # Reset to default config
             default_config = ConfigService().load_config()
@@ -513,10 +513,10 @@ class SettingsDialog:
             self.config_service.config["performance"]["enable_caching"] = self.caching_var.get()
             
             self.config_service.save_config()
-            messagebox.showinfo("Settings", "Settings applied successfully!")
+            messagebox.showinfo("Cài Đặt", "Đã áp dụng cài đặt thành công!")
             
         except Exception as e:
-            messagebox.showerror("Error", f"Error applying settings: {e}")
+            messagebox.showerror("Lỗi", f"Lỗi khi áp dụng cài đặt: {e}")
     
     def ok(self):
         """Apply and close"""
@@ -535,7 +535,7 @@ class AboutDialog:
     
     def show(self):
         dialog = tk.Toplevel(self.parent)
-        dialog.title(f"About {APP_NAME}")
+        dialog.title(f"Về {APP_NAME}")
         dialog.geometry("400x300")
         dialog.transient(self.parent)
         dialog.grab_set()
@@ -554,10 +554,10 @@ class AboutDialog:
         
         # Statistics
         stats = self.history_service.get_operation_stats()
-        stats_text = f"""Statistics:
-Total Operations: {stats['total_operations']}
-Files Processed: {stats['total_files']}
-Successful Renames: {stats['total_successes']}"""
+        stats_text = f"""Thống kê:
+Tổng thao tác: {stats['total_operations']}
+File đã xử lý: {stats['total_files']}
+Đổi tên thành công: {stats['total_successes']}"""
         
         ttk.Label(dialog, text=stats_text, justify=tk.LEFT).pack(pady=20)
         
@@ -575,7 +575,7 @@ class ProgressDialog:
         self.cancelled = False
         self.start_time = None
     
-    def show(self, title: str = "Processing...", estimated_total: int = 0):
+    def show(self, title: str = "Đang xử lý...", estimated_total: int = 0):
         self.start_time = time.time()
         
         self.dialog = tk.Toplevel(self.parent)
@@ -600,7 +600,7 @@ class ProgressDialog:
         progress_bar.pack(pady=20, padx=20, fill=tk.X)
         
         # Status label
-        self.status_var = tk.StringVar(value="Starting...")
+        self.status_var = tk.StringVar(value="Đang bắt đầu...")
         status_label = tk.Label(self.dialog, textvariable=self.status_var)
         status_label.pack(pady=10)
         
@@ -612,7 +612,7 @@ class ProgressDialog:
         # Cancel button
         cancel_button = tk.Button(
             self.dialog, 
-            text="Cancel", 
+            text="Hủy", 
             command=self._cancel
         )
         cancel_button.pack(pady=10)
@@ -640,7 +640,7 @@ class ProgressDialog:
     def _cancel(self):
         self.cancelled = True
         if self.status_var:
-            self.status_var.set("Cancelling...")
+            self.status_var.set("Đang hủy...")
     
     def is_cancelled(self):
         return self.cancelled
@@ -850,36 +850,36 @@ class CompleteFileRenameApp:
         
         # File menu
         file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Select Folder...", command=self.browse_folder, accelerator="Ctrl+O")
+        menubar.add_cascade(label="Tập Tin", menu=file_menu)
+        file_menu.add_command(label="Chọn Thư Mục...", command=self.browse_folder, accelerator="Ctrl+O")
         file_menu.add_separator()
-        file_menu.add_command(label="Export Preview...", command=self.export_preview, accelerator="Ctrl+E")
+        file_menu.add_command(label="Xuất Danh Sách...", command=self.export_preview, accelerator="Ctrl+E")
         file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.on_closing, accelerator="Ctrl+Q")
+        file_menu.add_command(label="Thoát", command=self.on_closing, accelerator="Ctrl+Q")
         
         # Edit menu
         edit_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Edit", menu=edit_menu)
-        edit_menu.add_command(label="Select All", command=self.select_all, accelerator="Ctrl+A")
-        edit_menu.add_command(label="Deselect All", command=self.deselect_all, accelerator="Ctrl+D")
+        menubar.add_cascade(label="Chỉnh Sửa", menu=edit_menu)
+        edit_menu.add_command(label="Chọn Tất Cả", command=self.select_all, accelerator="Ctrl+A")
+        edit_menu.add_command(label="Bỏ Chọn Tất Cả", command=self.deselect_all, accelerator="Ctrl+D")
         edit_menu.add_separator()
-        edit_menu.add_command(label="Settings...", command=self.show_settings, accelerator="Ctrl+,")
+        edit_menu.add_command(label="Cài Đặt...", command=self.show_settings, accelerator="Ctrl+,")
         
         # Operation menu
         operation_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Operation", menu=operation_menu)
-        operation_menu.add_command(label="Rename Files", command=self.rename_files, accelerator="F5")
-        operation_menu.add_command(label="Undo Last Operation", command=self.undo_last, accelerator="Ctrl+Z")
+        menubar.add_cascade(label="Thao Tác", menu=operation_menu)
+        operation_menu.add_command(label="Đổi Tên File", command=self.rename_files, accelerator="F5")
+        operation_menu.add_command(label="Hoàn Tác Thao Tác Cuối", command=self.undo_last, accelerator="Ctrl+Z")
         operation_menu.add_separator()
-        operation_menu.add_command(label="Refresh Preview", command=self.refresh_preview, accelerator="F5")
+        operation_menu.add_command(label="Làm Mới Xem Trước", command=self.refresh_preview, accelerator="F5")
         
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="User Guide", command=self.show_help)
-        help_menu.add_command(label="Keyboard Shortcuts", command=self.show_shortcuts)
+        menubar.add_cascade(label="Trợ Giúp", menu=help_menu)
+        help_menu.add_command(label="Hướng Dẫn Sử Dụng", command=self.show_help)
+        help_menu.add_command(label="Phím Tắt", command=self.show_shortcuts)
         help_menu.add_separator()
-        help_menu.add_command(label="About", command=self.show_about)
+        help_menu.add_command(label="Về Chương Trình", command=self.show_about)
         
         # Bind keyboard shortcuts
         self.root.bind('<Control-o>', lambda e: self.browse_folder())
