@@ -95,7 +95,14 @@
       "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py --tb=short -v)",
       "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py --tb=no -q)",
       "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py::TestSettingsIntegration::test_ui_preferences_persistence_workflow -v --tb=short)",
-      "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py::TestSettingsIntegration::test_normalization_engine_integration -v --tb=short)"
+      "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py::TestSettingsIntegration::test_normalization_engine_integration -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/performance/ -v --tb=short)",
+      "Bash(PYTHONPATH=\"D:\\pcloud\\code\\window\\mini tool\" venv/Scripts/pytest.exe tests/performance/ -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/ -v --tb=short -k \"not test_ui\" --maxfail=5)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py -v --tb=short --maxfail=3)",
+      "Bash(PYTHONPATH=\"D:\\pcloud\\code\\window\\mini tool\" venv/Scripts/pytest.exe tests/performance/test_basic_performance.py -v -s --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/performance/test_basic_performance.py --tb=no -v)",
+      "Bash(venv/Scripts/pytest.exe tests/performance/test_basic_performance.py --tb=short)"
     ],
     "deny": [],
     "ask": [],
