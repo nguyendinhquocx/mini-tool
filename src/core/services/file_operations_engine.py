@@ -137,6 +137,7 @@ class FileOperationsEngine:
                 logger.error(f"Failed to generate preview for {file_info.name}: {e}")
                 # Create error preview
                 error_preview = RenamePreview(
+                    file_id=f"error_{id(file_info)}_{hash(file_info.path)}",
                     file_info=file_info,
                     normalized_name=file_info.name,
                     normalized_full_path=file_info.path
@@ -161,6 +162,7 @@ class FileOperationsEngine:
         
         # Create preview
         preview = RenamePreview(
+            file_id=f"file_{id(file_info)}_{hash(file_info.path)}",
             file_info=file_info,
             normalized_name=normalized_name,
             normalized_full_path=normalized_full_path
@@ -196,7 +198,8 @@ class FileOperationsEngine:
     
     def execute_batch_rename(self, previews: List[RenamePreview], 
                            operation_config: Optional[BatchOperation] = None,
-                           progress_callback: Optional[Callable[[float, str], None]] = None) -> BatchOperation:
+                           progress_callback: Optional[Callable[[float, str], None]] = None,
+                           cancellation_token: Optional[Any] = None) -> BatchOperation:
         """
         Execute batch rename operation based on previews
         

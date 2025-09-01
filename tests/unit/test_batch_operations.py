@@ -117,7 +117,7 @@ class TestBatchOperationService:
         result = completion_results[0]
         assert result.operation_id == operation_id
         assert result.total_files == len(file_info_list)
-        assert result.is_completed()
+        assert result.is_completed
         
     def test_operation_cancellation(self, batch_service, file_info_list, temp_directory):
         """Test operation cancellation"""

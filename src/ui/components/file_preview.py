@@ -160,7 +160,7 @@ class FilePreviewComponent:
         self.loading_label.pack(side=tk.RIGHT)
 
     def update_files(self, folder_path: str):
-        """Update preview with files from selected folder (debounced)"""
+        """Update preview with files from selected folder (immediate, no debounce)"""
         # Cancel any existing debounce timer
         if self.update_debounce_timer:
             self.update_debounce_timer.cancel()
@@ -170,17 +170,28 @@ class FilePreviewComponent:
             self._update_status("No folder selected", "gray")
             return
         
-        # Schedule debounced update
-        self.update_debounce_timer = threading.Timer(
-            self.debounce_delay, 
-            self._debounced_update_files, 
-            [folder_path]
-        )
-        self.update_debounce_timer.start()
-        
-        # Show immediate loading state
+        # Show immediate loading state FIRST
         self.show_loading_state(True)
         self._update_status("Loading preview...", "blue")
+        
+        # Force UI update before processing
+        self.parent.update_idletasks()
+        
+        # Start processing immediately in background thread (no debounce delay)
+        def immediate_background_process():
+            try:
+                # Short delay to ensure UI has updated
+                import time
+                time.sleep(0.05)  # 50ms for UI to show loading state
+                
+                self._debounced_update_files(folder_path)
+            except Exception as e:
+                self.parent.after(0, self._handle_error_thread_safe, f"Error in immediate processing: {str(e)}")
+        
+        # Start immediately
+        import threading
+        process_thread = threading.Thread(target=immediate_background_process, daemon=True)
+        process_thread.start()
     
     def _debounced_update_files(self, folder_path: str):
         """Actual update implementation called after debounce delay"""
@@ -191,11 +202,42 @@ class FilePreviewComponent:
             
             self.folder_path = folder_path
             
-            # Generate rename preview data (in background thread)
-            preview_data = self._generate_rename_preview(folder_path)
+            # Show immediate feedback in UI thread
+            self.parent.after(0, self._thread_safe_update_status, "Scanning folder...", "blue")
             
-            # Update UI in main thread
-            self.parent.after(0, self._update_ui_with_preview, preview_data)
+            # Generate rename preview data (in background thread)
+            # Use threading to prevent blocking
+            def background_scan():
+                try:
+                    # Add timeout safety for large directories
+                    import signal
+                    import time
+                    
+                    start_time = time.time()
+                    preview_data = self._generate_rename_preview(folder_path)
+                    process_time = time.time() - start_time
+                    
+                    # Update UI in main thread
+                    self.parent.after(0, self._update_ui_with_preview, preview_data)
+                    
+                    # Log processing time for debugging
+                    if process_time > 1.0:  # Log if takes more than 1 second
+                        self.parent.after(0, self._thread_safe_update_status, 
+                                        f"Processed {len(preview_data)} files in {process_time:.1f}s", "green")
+                        
+                except MemoryError:
+                    self.parent.after(0, self._handle_error_thread_safe, "Directory too large - out of memory")
+                except PermissionError:
+                    self.parent.after(0, self._handle_error_thread_safe, "Permission denied accessing folder")
+                except OSError as e:
+                    self.parent.after(0, self._handle_error_thread_safe, f"System error: {str(e)[:100]}")
+                except Exception as e:
+                    self.parent.after(0, self._handle_error_thread_safe, f"Error generating preview: {str(e)[:100]}")
+            
+            # Run in background thread
+            import threading
+            scan_thread = threading.Thread(target=background_scan, daemon=True)
+            scan_thread.start()
                 
         except Exception as e:
             self.parent.after(0, self._handle_error_thread_safe, f"Error generating preview: {str(e)}")
@@ -258,23 +300,30 @@ class FilePreviewComponent:
             items = os.listdir(folder_path)
             items.sort()  # Sort alphabetically
             
-            # Performance limit for large directories
-            if len(items) > self.max_visible_items:
+            # Performance limit for large directories - be more aggressive
+            max_items = min(self.max_visible_items, 500)  # Cap at 500 for responsiveness
+            if len(items) > max_items:
                 original_count = len(items)
-                items = items[:self.max_visible_items]
-                logger.warning(f"Large directory detected ({original_count} items), limiting to {self.max_visible_items} for performance")
+                items = items[:max_items]
+                logger.warning(f"Large directory detected ({original_count} items), limiting to {max_items} for performance")
             
             # Track normalized names for conflict detection
             normalized_names = {}
             
-            # Process files in batches for better performance
+            # Process files in batches for better performance with smaller batch sizes
+            batch_size = min(self.lazy_load_batch_size, 50)  # Smaller batches for responsiveness
             total_items = len(items)
-            for batch_start in range(0, total_items, self.lazy_load_batch_size):
-                batch_end = min(batch_start + self.lazy_load_batch_size, total_items)
+            for batch_start in range(0, total_items, batch_size):
+                batch_end = min(batch_start + batch_size, total_items)
                 batch_items = items[batch_start:batch_end]
                 
                 batch_previews = self._process_batch(folder_path, batch_items, batch_start, normalized_names)
                 preview_data.extend(batch_previews)
+                
+                # Yield control occasionally for responsiveness
+                if batch_start % 100 == 0:
+                    import time
+                    time.sleep(0.001)  # Tiny sleep to yield control
                 
                 # Allow UI updates between batches for large datasets
                 if len(preview_data) % (self.lazy_load_batch_size * 2) == 0:

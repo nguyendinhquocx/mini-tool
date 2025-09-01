@@ -28,6 +28,16 @@ except ImportError:
 
 class AppController:
     def __init__(self):
+        # Disable console logging to prevent Unicode encoding issues
+        import logging
+        import sys
+        
+        # Remove all console handlers to prevent encoding crashes
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers[:]:
+            if isinstance(handler, logging.StreamHandler) and handler.stream in (sys.stdout, sys.stderr):
+                root_logger.removeHandler(handler)
+        
         self.main_window = MainWindow()
         self.state_manager = self.main_window.get_state_manager()
         
@@ -130,9 +140,25 @@ class AppController:
                 not self._updating_file_preview):
                 self._updating_file_preview = True
                 try:
-                    self.file_preview.update_files(state.selected_folder)
-                finally:
+                    # Process folder selection in background to prevent UI blocking
+                    def process_folder_change():
+                        try:
+                            self.file_preview.update_files(state.selected_folder)
+                        except Exception as e:
+                            # Handle errors in background thread
+                            self.main_window.root.after(0, 
+                                lambda: self._handle_error(f"Folder processing error: {str(e)}"))
+                        finally:
+                            self._updating_file_preview = False
+                    
+                    # Start background processing immediately
+                    import threading
+                    folder_thread = threading.Thread(target=process_folder_change, daemon=True)
+                    folder_thread.start()
+                    
+                except Exception as e:
                     self._updating_file_preview = False
+                    self._handle_error(f"State update error: {str(e)}")
                     
         except Exception as e:
             self._updating_file_preview = False

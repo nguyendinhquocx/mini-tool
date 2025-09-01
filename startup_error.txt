@@ -1,0 +1,17 @@
+Startup Error: unknown option "-bd"
+Traceback (most recent call last):
+  File "D:\pcloud\code\window\mini tool\complete_app.py", line 1483, in <module>
+    app = CompleteFileRenameApp()
+  File "D:\pcloud\code\window\mini tool\complete_app.py", line 658, in __init__
+    self.setup_ui()
+    ~~~~~~~~~~~~~^^
+  File "D:\pcloud\code\window\mini tool\complete_app.py", line 683, in setup_ui
+    folder_frame.configure(relief='flat', bd=1)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\quocn\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 1822, in configure
+    return self._configure('configure', cnf, kw)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\quocn\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 1812, in _configure
+    self.tk.call(_flatten((self._w, cmd)) + self._options(cnf))
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_tkinter.TclError: unknown option "-bd"

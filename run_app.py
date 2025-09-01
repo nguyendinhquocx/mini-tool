@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 """
-Simple launcher for File Rename Tool
+Production launcher for File Rename Tool with proper Unicode handling
 """
 
 import sys
 import os
-import tkinter as tk
+import locale
 from pathlib import Path
+
+# Set UTF-8 encoding for proper Unicode support on Windows
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+try:
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+except:
+    try:
+        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+    except:
+        pass  # Continue with default locale
 
 # Add project root to Python path
 project_root = Path(__file__).parent
@@ -19,37 +29,46 @@ if __name__ == "__main__":
         # Try to import the main application
         from src.ui.components.app_controller import AppController
         
+        # Disable console logging to prevent encoding issues with Vietnamese paths
+        import logging
+        logging.getLogger().handlers = []  # Remove console handlers
+        
         # Create and start application controller (it creates its own window)
         app = AppController()
         
-        # Start the application
-        print("Starting File Rename Tool...")
-        print("Select a folder to begin renaming files")
-        
-        app.run()
+        # Keep running until user closes the application
+        app.main_window.root.mainloop()
         
     except ImportError as e:
-        print(f"❌ Error importing application: {e}")
+        import tkinter as tk
+        import tkinter.messagebox as msgbox
+        error_msg = f"Import Error:\n{str(e)}\n\nPlease ensure all dependencies are installed:\npip install -r requirements.txt"
         
-        # Fallback - create a simple demo interface
-        print("⚠️  Running fallback interface...")
-        
+        # Show simple error dialog
         root = tk.Tk()
-        root.title("File Rename Tool (Fallback Mode)")
-        root.geometry("600x400")
-        
-        label = tk.Label(root, text="File Rename Tool\n(Fallback Mode)", 
-                        font=('Arial', 16, 'bold'))
-        label.pack(pady=50)
-        
-        info_label = tk.Label(root, 
-                            text="The full application could not load.\nPlease check your Python environment.",
-                            font=('Arial', 10))
-        info_label.pack(pady=20)
-        
-        root.mainloop()
+        root.withdraw()  # Hide root window
+        msgbox.showerror("Import Error", error_msg)
         
     except Exception as e:
-        print(f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
+        import tkinter as tk
+        import tkinter.messagebox as msgbox
+        error_msg = f"Application Error:\n{str(e)}\n\nError Type: {type(e).__name__}"
+        
+        # Show error dialog
+        try:
+            root = tk.Tk()
+            root.withdraw()  # Hide root window
+            msgbox.showerror("Application Error", error_msg)
+        except:
+            pass
+        
+        # Log to file instead of console to avoid encoding issues
+        try:
+            with open("error_log.txt", "w", encoding="utf-8") as f:
+                import traceback
+                f.write(f"Application Error: {e}\n")
+                f.write(f"Error Type: {type(e).__name__}\n")
+                f.write("Full traceback:\n")
+                traceback.print_exc(file=f)
+        except:
+            pass  # Ignore logging errors
