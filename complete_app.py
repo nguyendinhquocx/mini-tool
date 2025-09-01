@@ -691,6 +691,8 @@ class CompleteFileRenameApp:
         # UI Components
         self.folder_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Select a folder to begin")
+        self.include_subfolders_var = tk.BooleanVar(value=False)
+        self.max_depth_var = tk.IntVar(value=3)
         
         self.setup_ui()
         self.setup_bindings()
@@ -736,6 +738,30 @@ class CompleteFileRenameApp:
         self.recent_combo = ttk.Combobox(folder_frame, state="readonly")
         self.recent_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(0, 5), pady=(5, 0))
         self.recent_combo.bind('<<ComboboxSelected>>', self.on_recent_selected)
+        
+        # Subfolder options
+        options_frame = ttk.Frame(folder_frame)
+        options_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(10, 0))
+        
+        self.include_subfolders_cb = ttk.Checkbutton(
+            options_frame, 
+            text="Include subfolders", 
+            variable=self.include_subfolders_var,
+            command=self.on_subfolder_option_changed
+        )
+        self.include_subfolders_cb.pack(side=tk.LEFT)
+        
+        # Depth limit
+        ttk.Label(options_frame, text="Max depth:").pack(side=tk.LEFT, padx=(20, 5))
+        depth_spin = ttk.Spinbox(
+            options_frame, 
+            from_=1, 
+            to=5, 
+            width=5, 
+            textvariable=self.max_depth_var,
+            command=self.on_subfolder_option_changed
+        )
+        depth_spin.pack(side=tk.LEFT)
         
         # File preview section with enhanced info
         preview_frame = ttk.LabelFrame(main_frame, text="File Rename Preview", padding="10")
@@ -1012,6 +1038,14 @@ Double-click Toggle file selection
             self.config_service.config["recent_folders"] = recent
             self.config_service.save_config()
     
+    def on_subfolder_option_changed(self):
+        """Handle subfolder option changes - refresh preview if folder is selected"""
+        if self.current_folder and os.path.exists(self.current_folder):
+            # Trigger refresh by setting folder again
+            folder = self.current_folder
+            self.folder_var.set("")  # Clear to trigger refresh
+            self.folder_var.set(folder)
+    
     def on_folder_changed(self, *args):
         """Handle folder path changes với immediate UI feedback"""
         folder_path = self.folder_var.get()
@@ -1037,26 +1071,94 @@ Double-click Toggle file selection
         thread = threading.Thread(target=load_files, daemon=True)
         thread.start()
     
+    def _scan_folder_recursive(self, folder_path: str, max_depth: int, max_files: int):
+        """Recursively scan folder for files với depth và file count limits"""
+        files = []
+        
+        def scan_directory(current_path: str, current_depth: int, relative_path: str = ""):
+            if current_depth > max_depth or len(files) >= max_files:
+                return
+                
+            try:
+                items = os.listdir(current_path)
+                for item in items:
+                    if len(files) >= max_files:
+                        break
+                        
+                    item_path = os.path.join(current_path, item)
+                    
+                    try:
+                        if os.path.isfile(item_path):
+                            size = os.path.getsize(item_path)
+                            files.append((item, size, relative_path))  # Store relative directory path
+                        elif os.path.isdir(item_path) and current_depth < max_depth:
+                            # Recursively scan subdirectory
+                            sub_relative_path = os.path.join(relative_path, item) if relative_path else item
+                            scan_directory(item_path, current_depth + 1, sub_relative_path)
+                    except (PermissionError, OSError):
+                        # Skip inaccessible files/folders
+                        continue
+                        
+            except (PermissionError, OSError):
+                # Skip inaccessible directories
+                pass
+        
+        scan_directory(folder_path, 1)
+        return files
+    
+    def _show_large_operation_warning(self, file_count: int, include_subfolders: bool, message: str):
+        """Show warning for large operations"""
+        from tkinter import messagebox
+        
+        title = "Large Operation Warning"
+        detailed_msg = (f"{message}\n\n"
+                       f"Tips for large operations:\n"
+                       f"• Consider using smaller max depth\n"
+                       f"• Check 'Performance' settings\n"
+                       f"• Operation can be cancelled if needed")
+        
+        # Just show info, don't block processing
+        messagebox.showinfo(title, detailed_msg)
+    
     def load_files_from_folder(self, folder_path: str, max_files: int = 5000):
         """Load and process files from folder với performance optimization"""
         try:
             start_time = time.time()
             
-            # Get all files
-            all_items = os.listdir(folder_path)
+            # Get all files (with optional recursive scan)
             files = []
+            include_subfolders = self.include_subfolders_var.get()
+            max_depth = self.max_depth_var.get() if include_subfolders else 1
             
-            for item in all_items:
-                item_path = os.path.join(folder_path, item)
-                if os.path.isfile(item_path):
-                    try:
-                        size = os.path.getsize(item_path)
-                        files.append((item, size))
-                    except:
-                        files.append((item, 0))
+            if include_subfolders:
+                # Recursive scan với depth limit
+                files = self._scan_folder_recursive(folder_path, max_depth, max_files)
+            else:
+                # Shallow scan (original behavior)
+                all_items = os.listdir(folder_path)
+                for item in all_items:
+                    item_path = os.path.join(folder_path, item)
+                    if os.path.isfile(item_path):
+                        try:
+                            size = os.path.getsize(item_path)
+                            files.append((item, size, ""))  # Empty relative path for root files
+                        except:
+                            files.append((item, 0, ""))
             
-            # Apply performance limit
+            # Apply performance limit và warnings
             original_count = len(files)
+            
+            # Warning for large operations
+            if original_count > 1000:
+                include_text = "with subfolders" if include_subfolders else ""
+                warning_msg = (f"Found {original_count} files {include_text}. "
+                              f"This may take longer to process. Continue?")
+                
+                # Show warning on main thread
+                self.root.after(0, lambda: self._show_large_operation_warning(
+                    original_count, include_subfolders, warning_msg
+                ))
+            
             if len(files) > max_files:
                 files = files[:max_files]
                 self.root.after(0, lambda: self.status_var.set(
@@ -1071,13 +1173,20 @@ Double-click Toggle file selection
                 batch = files[i:i + batch_size]
                 batch_preview = []
                 
-                for filename, size in batch:
+                for file_data in batch:
+                    # Handle both (filename, size) and (filename, size, relative_path) formats
+                    if len(file_data) == 3:
+                        filename, size, relative_path = file_data
+                    else:
+                        filename, size = file_data
+                        relative_path = ""
+                    
                     try:
                         normalized = self.normalizer.normalize_filename(filename)
                         status = "Ready" if filename != normalized else "No change"
                         
-                        # Check for conflicts
-                        existing_files = [f[0] for f in files]
+                        # Check for conflicts within the same directory
+                        existing_files = [f[0] for f in files if (len(f) >= 3 and f[2] == relative_path) or (len(f) == 2 and relative_path == "")]
                         if normalized != filename and normalized in existing_files:
                             status = "Conflict!"
                         
@@ -1089,23 +1198,33 @@ Double-click Toggle file selection
                         else:
                             size_str = f"{size / (1024 * 1024):.1f} MB"
                         
+                        # Display path: show relative path if exists
+                        display_current = os.path.join(relative_path, filename) if relative_path else filename
+                        display_new = os.path.join(relative_path, normalized) if relative_path else normalized
+                        
                         batch_preview.append({
                             'selected': True,
-                            'current': filename,
-                            'new': normalized,
+                            'current': display_current,
+                            'new': display_new,
                             'status': status,
                             'size': size_str,
-                            'changed': filename != normalized
+                            'changed': filename != normalized,
+                            'filename': filename,  # Store original filename for processing
+                            'relative_path': relative_path  # Store relative path for processing
                         })
                         
                     except Exception as e:
+                        display_current = os.path.join(relative_path, filename) if relative_path else filename
+                        
                         batch_preview.append({
                             'selected': False,
-                            'current': filename,
-                            'new': filename,
+                            'current': display_current,
+                            'new': display_current,
                             'status': f"Error: {str(e)[:20]}",
                             'size': "0 B",
-                            'changed': False
+                            'changed': False,
+                            'filename': filename,
+                            'relative_path': relative_path
                         })
                 
                 preview_data.extend(batch_preview)
@@ -1299,8 +1418,18 @@ Double-click Toggle file selection
                 break
             
             try:
-                old_path = os.path.join(self.current_folder, item['current'])
-                new_path = os.path.join(self.current_folder, item['new'])
+                # Handle files with relative paths
+                if 'relative_path' in item and item['relative_path']:
+                    # File in subdirectory
+                    old_filename = item['filename']
+                    new_filename = self.normalizer.normalize_filename(old_filename)
+                    
+                    old_path = os.path.join(self.current_folder, item['relative_path'], old_filename)
+                    new_path = os.path.join(self.current_folder, item['relative_path'], new_filename)
+                else:
+                    # File in root directory (backward compatibility)
+                    old_path = os.path.join(self.current_folder, item['current'])
+                    new_path = os.path.join(self.current_folder, item['new'])
                 
                 if not os.path.exists(new_path):
                     os.rename(old_path, new_path)
