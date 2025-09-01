@@ -102,7 +102,12 @@
       "Bash(venv/Scripts/pytest.exe tests/unit/test_normalize_service.py -v --tb=short --maxfail=3)",
       "Bash(PYTHONPATH=\"D:\\pcloud\\code\\window\\mini tool\" venv/Scripts/pytest.exe tests/performance/test_basic_performance.py -v -s --tb=short)",
       "Bash(venv/Scripts/pytest.exe tests/performance/test_basic_performance.py --tb=no -v)",
-      "Bash(venv/Scripts/pytest.exe tests/performance/test_basic_performance.py --tb=short)"
+      "Bash(venv/Scripts/pytest.exe tests/performance/test_basic_performance.py --tb=short)",
+      "Bash(venvScriptspython packagingbuild.py --help)",
+      "Bash(FileRenameTool.exe:*)",
+      "Bash(PYTHONPATH=\"D:\\pcloud\\code\\window\\mini tool\" venv/Scripts/python src/main.py)",
+      "Bash(if exist dist rmdir /s /q dist)",
+      "Bash(start FileRenameTool.exe)"
     ],
     "deny": [],
     "ask": [],
