@@ -1392,13 +1392,27 @@ Double-click Toggle file selection
         original_filename = data_item['filename']
         name_part, ext_part = os.path.splitext(original_filename)
         
-        # For editing, show only the name part (without extension)
+        # Handle files without extension (like screenshot files)
+        if not ext_part:
+            # Try to detect actual file type if possible
+            ext_part = self.detect_file_extension(data_item, original_filename)
+        
+        # For editing, show the full name if no extension, otherwise just name part
         if data_item.get('custom_name'):
-            # If there's a custom name, extract just the name part
-            custom_name_part, _ = os.path.splitext(data_item['custom_name'])
-            current_name = custom_name_part
+            if ext_part:
+                # Has extension - edit only name part
+                custom_name_part, _ = os.path.splitext(data_item['custom_name'])
+                current_name = custom_name_part
+            else:
+                # No extension - edit full name
+                current_name = data_item['custom_name']
         else:
-            current_name = name_part
+            if ext_part:
+                # Has extension - edit only name part
+                current_name = name_part
+            else:
+                # No extension - edit full name
+                current_name = original_filename
         
         # Create frame for entry and extension label
         edit_frame = tk.Frame(popup)
@@ -1420,8 +1434,12 @@ Double-click Toggle file selection
             new_name = entry.get().strip()
             popup.destroy()
             if new_name and new_name != current_name:
-                # Auto-append the original extension
-                new_name_with_ext = new_name + ext_part
+                if ext_part:
+                    # Has extension - append it
+                    new_name_with_ext = new_name + ext_part
+                else:
+                    # No extension - use name as is
+                    new_name_with_ext = new_name
                 self.apply_manual_edit(item_index, new_name_with_ext, ext_part)
         
         def cancel_edit():
@@ -1445,13 +1463,19 @@ Double-click Toggle file selection
             messagebox.showerror("Tên File Không Hợp Lệ", validation_result['message'])
             return
         
-        # Ensure extension is preserved
+        # Handle extension preservation
         original_name, original_ext = os.path.splitext(data_item['filename'])
         new_name_part, new_ext = os.path.splitext(new_name)
         
-        # If user didn't specify extension, use original
-        if not new_ext and original_ext:
-            new_name = new_name_part + original_ext
+        # If original file had no extension, allow editing without extension
+        if not original_ext:
+            # For files without extension, accept the name as-is
+            # But if user added an extension, keep it
+            pass  # new_name stays as user provided
+        else:
+            # If user didn't specify extension but original had one, use original
+            if not new_ext and original_ext:
+                new_name = new_name_part + original_ext
         
         # Apply the edit
         relative_path = data_item['relative_path']
@@ -1512,6 +1536,52 @@ Double-click Toggle file selection
             return {'valid': False, 'message': f"File đã tồn tại trên đĩa: '{name}'"}
         
         return {'valid': True, 'message': ''}
+    
+    def detect_file_extension(self, data_item, filename):
+        """Try to detect file extension for files without extension"""
+        # For now, simple heuristic based on filename patterns
+        # This could be enhanced with actual file content detection
+        
+        lower_name = filename.lower()
+        
+        # Screenshot patterns
+        if 'screenshot' in lower_name:
+            return '.jpg'  # Most screenshots are JPG
+            
+        # Image patterns (common image file patterns without extensions)
+        if any(pattern in lower_name for pattern in ['img_', 'image_', 'photo_', 'pic_']):
+            return '.jpg'
+            
+        # Document patterns
+        if any(pattern in lower_name for pattern in ['doc_', 'document_', 'report_']):
+            return '.pdf'
+            
+        # Try to detect from actual file if it exists
+        if hasattr(self, 'current_folder') and self.current_folder:
+            relative_path = data_item.get('relative_path', '')
+            if relative_path:
+                full_path = os.path.join(self.current_folder, relative_path, filename)
+            else:
+                full_path = os.path.join(self.current_folder, filename)
+                
+            if os.path.exists(full_path):
+                try:
+                    # Try to read file header to detect type
+                    with open(full_path, 'rb') as f:
+                        header = f.read(8)
+                        if header.startswith(b'\xff\xd8\xff'):  # JPEG
+                            return '.jpg'
+                        elif header.startswith(b'\x89PNG'):  # PNG
+                            return '.png'
+                        elif header.startswith(b'GIF8'):  # GIF
+                            return '.gif'
+                        elif header.startswith(b'%PDF'):  # PDF
+                            return '.pdf'
+                except:
+                    pass  # If can't read, ignore
+        
+        # Default: no extension detected
+        return ""
     
     def on_right_click(self, event):
         """Handle right-click for context menu"""
