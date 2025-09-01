@@ -40,6 +40,10 @@ class AppController:
             operation_history_service=self.history_service
         )
         
+        # Initialize configuration service  
+        from ...core.services.config_service import get_config_service
+        self.config_service = get_config_service()
+        
         # UI Components
         self.folder_selector: Optional[FolderSelectorComponent] = None
         self.file_preview: Optional[FilePreviewComponent] = None
@@ -275,16 +279,32 @@ class AppController:
                 )
                 return
                 
-            # Confirm operation with user
+            # Get current configuration for confirmation dialog
+            config_rules = self.config_service.get_normalization_rules()
+            operation_settings = self.config_service.get_operation_settings()
+            
+            # Build confirmation message based on current settings
             file_count = len(self._current_files)
+            rules_description = []
+            if config_rules.remove_diacritics:
+                rules_description.append("Remove Vietnamese diacritics")
+            if config_rules.convert_to_lowercase:
+                rules_description.append("Convert to lowercase")
+            if config_rules.clean_special_characters:
+                rules_description.append("Replace special characters")
+            if config_rules.normalize_whitespace:
+                rules_description.append("Normalize whitespace")
+            
+            if not rules_description:
+                rules_description.append("No normalization rules enabled")
+            
+            mode_text = "DRY RUN MODE - Preview only" if operation_settings.dry_run_by_default else "LIVE MODE - Files will be renamed"
+            
             result = messagebox.askyesno(
                 "Confirm Batch Rename",
-                f"This will rename {file_count} files using Vietnamese normalization.\n\n"
-                f"Files will be processed to:\n"
-                f"• Remove Vietnamese diacritics\n"
-                f"• Convert to lowercase\n"
-                f"• Replace special characters\n"
-                f"• Normalize whitespace\n\n"
+                f"This will rename {file_count} files.\n\n"
+                f"MODE: {mode_text}\n\n"
+                f"Active rules:\n" + "\n".join(f"• {rule}" for rule in rules_description) + "\n\n"
                 f"Do you want to continue?",
                 parent=self.main_window.root
             )
@@ -292,12 +312,22 @@ class AppController:
             if not result:
                 return
                 
-            # Create operation request
+            # Create operation request với configuration rules
             current_state = self.state_manager.state
+            
+            # Get normalization rules từ configuration
+            config_rules = self.config_service.get_normalization_rules()
+            operation_settings = self.config_service.get_operation_settings()
+            
+            # Convert configuration rules to operation rules format
+            # Note: Cần adapter để convert từ NormalizationRulesConfig sang NormalizationRules
+            from ...core.services.normalize_service import VietnameseNormalizer
+            normalizer = VietnameseNormalizer.from_config(config_rules)
+            
             request = BatchOperationRequest(
                 files=self._current_files,
-                rules=NormalizationRules(),  # Use default rules
-                dry_run=False,
+                rules=normalizer.rules,  # Use rules từ configuration
+                dry_run=operation_settings.dry_run_by_default,
                 source_directory=current_state.selected_folder or "",
                 operation_type=OperationType.BATCH_RENAME
             )

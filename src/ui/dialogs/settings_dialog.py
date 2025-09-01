@@ -749,9 +749,9 @@ class SettingsDialog:
             
             # Apply normalization (simplified preview)
             from ...core.services.normalize_service import VietnameseNormalizer
-            normalizer = VietnameseNormalizer(rules)
+            normalizer = VietnameseNormalizer()
             
-            result = normalizer.normalize_filename(test_text)
+            result = normalizer.normalize_filename_with_config(test_text, rules)
             self.ui_components['preview_result'].set(result)
             
         except Exception as e:

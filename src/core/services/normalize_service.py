@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from unidecode import unidecode
 import logging
 
+from ..models.config import NormalizationRulesConfig
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,79 @@ class VietnameseNormalizer:
     def __init__(self, rules: Optional[NormalizationRules] = None):
         self.rules = rules or NormalizationRules()
         
+    @classmethod
+    def from_config(cls, config_rules: NormalizationRulesConfig) -> 'VietnameseNormalizer':
+        """
+        Create normalizer từ configuration rules
+        
+        Args:
+            config_rules: NormalizationRulesConfig instance từ configuration system
+            
+        Returns:
+            VietnameseNormalizer instance
+        """
+        # Convert NormalizationRulesConfig to NormalizationRules
+        rules = NormalizationRules(
+            remove_diacritics=config_rules.remove_diacritics,
+            lowercase_conversion=config_rules.convert_to_lowercase,
+            clean_special_chars=config_rules.clean_special_characters,
+            normalize_whitespace=config_rules.normalize_whitespace,
+            preserve_extensions=config_rules.preserve_extensions,
+            preserve_case_for_extensions=config_rules.preserve_case_for_extensions,
+            preserve_numbers=config_rules.preserve_numbers,
+            preserve_english_words=config_rules.preserve_english_words,
+            max_filename_length=config_rules.max_filename_length,
+            min_filename_length=config_rules.min_filename_length,
+            custom_replacements=config_rules.custom_replacements.copy()
+        )
+        return cls(rules)
+        
+    def normalize_text_with_config(self, text: str, config_rules: NormalizationRulesConfig) -> str:
+        """
+        Apply Vietnamese normalization với configuration rules
+        
+        Args:
+            text: Input text to normalize
+            config_rules: Configuration rules từ settings system
+            
+        Returns:
+            Normalized text string
+        """
+        # Convert config rules to internal format
+        rules = self._convert_config_to_rules(config_rules)
+        return self.normalize_text(text, rules)
+    
+    def normalize_filename_with_config(self, filename: str, config_rules: NormalizationRulesConfig) -> str:
+        """
+        Normalize filename với configuration rules
+        
+        Args:
+            filename: Original filename
+            config_rules: Configuration rules từ settings system
+            
+        Returns:
+            Normalized filename
+        """
+        # Convert config rules to internal format
+        rules = self._convert_config_to_rules(config_rules)
+        return self.normalize_filename(filename, rules)
+    
+    def _convert_config_to_rules(self, config_rules: NormalizationRulesConfig) -> NormalizationRules:
+        """Convert NormalizationRulesConfig to internal NormalizationRules"""
+        return NormalizationRules(
+            remove_diacritics=config_rules.remove_diacritics,
+            lowercase_conversion=config_rules.convert_to_lowercase,
+            clean_special_chars=config_rules.clean_special_characters,
+            normalize_whitespace=config_rules.normalize_whitespace,
+            preserve_extensions=config_rules.preserve_extensions,
+            preserve_case_for_extensions=config_rules.preserve_case_for_extensions,
+            preserve_numbers=config_rules.preserve_numbers,
+            preserve_english_words=config_rules.preserve_english_words,
+            max_filename_length=config_rules.max_filename_length,
+            min_filename_length=config_rules.min_filename_length,
+            custom_replacements=config_rules.custom_replacements.copy()
+        )
+
     def normalize_text(self, text: str, rules: Optional[NormalizationRules] = None) -> str:
         """
         Apply complete Vietnamese normalization pipeline to text
@@ -197,6 +272,10 @@ class VietnameseNormalizer:
         
         try:
             # Apply normalization pipeline
+            # Apply custom replacements first, before other processing
+            if active_rules.custom_replacements:
+                result = self._apply_custom_replacements(result, active_rules.custom_replacements)
+            
             if active_rules.remove_diacritics:
                 result = self.remove_diacritics(result)
                 
@@ -204,7 +283,9 @@ class VietnameseNormalizer:
                 result = self.apply_case_rules(result)
                 
             if active_rules.clean_special_chars:
-                result = self.clean_special_chars(result, active_rules.safe_char_replacements)
+                # Merge safe char replacements but exclude custom replacements (already applied)
+                safe_chars_only = active_rules.safe_char_replacements or {}
+                result = self.clean_special_chars(result, safe_chars_only)
                 
             if active_rules.normalize_whitespace:
                 result = self._normalize_whitespace(result)
@@ -232,16 +313,25 @@ class VietnameseNormalizer:
         active_rules = rules or self.rules
         
         if active_rules.preserve_extensions:
-            # Extract filename and extension
+            # Extract filename and extension (only valid file extensions)
             name, ext = os.path.splitext(filename)
             
-            # Normalize only the name portion
-            normalized_name = self.normalize_text(name, active_rules)
+            # Check if extension is a valid file extension (alphanumeric, common extensions)
+            valid_ext = ext and len(ext) <= 5 and ext[1:].isalpha() and not any(c in ext for c in ['@', '#', '!', '?'])
             
-            # Recombine with original extension
-            return f"{normalized_name}{ext}" if normalized_name else ext
+            if valid_ext:
+                # Normalize only the name portion  
+                normalized_name = self.normalize_text(name, active_rules)
+                # Recombine with original extension (optionally normalized)
+                if active_rules.preserve_case_for_extensions:
+                    return normalized_name + ext
+                else:
+                    return normalized_name + ext.lower()
+            else:
+                # No valid extension found, normalize entire filename
+                return self.normalize_text(filename, active_rules)
         else:
-            # Normalize entire filename including extension
+            # Don't preserve extensions, normalize everything
             return self.normalize_text(filename, active_rules)
     
     def remove_diacritics(self, text: str) -> str:
@@ -301,7 +391,9 @@ class VietnameseNormalizer:
         if not text:
             return ""
             
-        char_map = replacements or self.rules.merge_custom_replacements()
+        # Use provided replacements or default to safe char replacements only
+        # (custom replacements should already be applied separately)
+        char_map = replacements or self.rules.safe_char_replacements
         result = text
         
         # Apply all character replacements except hyphens first
@@ -350,6 +442,26 @@ class VietnameseNormalizer:
         
         # Trim leading and trailing whitespace
         result = result.strip()
+        
+        return result
+    
+    def _apply_custom_replacements(self, text: str, custom_replacements: Dict[str, str]) -> str:
+        """
+        Apply custom character replacements
+        
+        Args:
+            text: Text to process
+            custom_replacements: Dictionary of custom replacements
+            
+        Returns:
+            Text with custom replacements applied
+        """
+        if not text or not custom_replacements:
+            return text
+            
+        result = text
+        for char, replacement in custom_replacements.items():
+            result = result.replace(char, replacement)
         
         return result
     

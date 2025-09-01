@@ -3,6 +3,8 @@ from tkinter import filedialog, ttk, messagebox
 import os
 from typing import Callable, Optional
 
+from ...core.services.config_service import get_config_service
+
 
 class FolderSelectorComponent:
     def __init__(self, parent: ttk.Widget, state_changed_callback: Callable):
@@ -10,6 +12,7 @@ class FolderSelectorComponent:
         self.on_state_changed = state_changed_callback
         self.folder_path = tk.StringVar()
         self.folder_path.trace('w', self._on_folder_changed)
+        self.config_service = get_config_service()
         self.setup_ui()
         
         # Track last selection method for UI feedback
@@ -60,6 +63,12 @@ class FolderSelectorComponent:
                     self.last_selection_method = "browse"
                     self.folder_path.set(folder_path)
                     self._update_status(f"Browsed: {os.path.basename(folder_path)}", "green")
+                    
+                    # Add to recent folders
+                    try:
+                        self.config_service.add_recent_folder(folder_path)
+                    except Exception as e:
+                        print(f"Error adding recent folder: {e}")
                 else:
                     self._update_status("Selected folder is not accessible", "red")
         except Exception as e:
@@ -103,6 +112,12 @@ class FolderSelectorComponent:
         if self._validate_folder(folder_path):
             self.last_selection_method = method
             self.folder_path.set(folder_path)
+            
+            # Add to recent folders for any valid method
+            try:
+                self.config_service.add_recent_folder(folder_path)
+            except Exception as e:
+                print(f"Error adding recent folder: {e}")
             
             # Update status based on selection method
             if method == "drag_drop":

@@ -5,6 +5,8 @@ from typing import Optional, Callable, Any, List
 from dataclasses import dataclass, field
 from enum import Enum
 
+from ..core.services.config_service import get_config_service
+
 # UI Constants
 DEFAULT_WINDOW_WIDTH = 600
 DEFAULT_WINDOW_HEIGHT = 500
@@ -71,10 +73,13 @@ class MainWindow:
         self.state_manager = StateManager()
         self.components = {}
         self.drag_drop_handler = None
+        self.config_service = get_config_service()
         self._setup_window()
         self._setup_layout()
         self._create_menu()
         self._setup_drag_drop_handling()
+        self._restore_window_geometry()
+        self._setup_window_close_handler()
 
     def _setup_window(self):
         # Initialize TkinterDnD before creating Tk root
@@ -139,6 +144,9 @@ class MainWindow:
         edit_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Edit", menu=edit_menu)
 
+        # Add settings menu
+        self._create_settings_menu()
+
         # Help menu
         help_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Help", menu=help_menu)
@@ -146,6 +154,13 @@ class MainWindow:
 
         # Bind keyboard shortcuts
         self.root.bind('<Control-q>', lambda e: self._on_exit())
+    
+    def _create_settings_menu(self):
+        """Create settings menu với integration"""
+        from .components.settings_panel import SettingsMenuIntegration
+        
+        settings_integration = SettingsMenuIntegration(self.config_service)
+        settings_integration.add_settings_menu(self.menubar, self.root)
     
     def _setup_drag_drop_handling(self):
         """Configure window to accept drag-and-drop operations"""
@@ -273,6 +288,88 @@ class MainWindow:
     def run(self):
         if self.root:
             self.root.mainloop()
+
+    def _restore_window_geometry(self):
+        """Restore window geometry từ saved preferences"""
+        try:
+            ui_prefs = self.config_service.get_ui_preferences()
+            
+            # Set window size
+            width = ui_prefs.window_width
+            height = ui_prefs.window_height
+            
+            # Set window position if available
+            x = ui_prefs.window_x
+            y = ui_prefs.window_y
+            
+            # Validate coordinates are within screen bounds
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            
+            if x is None or y is None or x < 0 or y < 0 or x > screen_width - 100 or y > screen_height - 100:
+                # Center window if position is invalid or not set
+                x = (screen_width - width) // 2
+                y = (screen_height - height) // 2
+            
+            # Apply geometry
+            geometry_str = f"{width}x{height}+{x}+{y}"
+            self.root.geometry(geometry_str)
+            
+            # Set maximized state if needed
+            if ui_prefs.window_maximized:
+                self.root.state('zoomed')  # Windows/Linux
+                
+        except Exception as e:
+            print(f"Error restoring window geometry: {e}")
+            # Fall back to default geometry if restore fails
+            pass
+    
+    def _setup_window_close_handler(self):
+        """Setup handler to save window geometry on close"""
+        def on_window_close():
+            self._save_window_geometry()
+            self._on_exit()
+        
+        self.root.protocol("WM_DELETE_WINDOW", on_window_close)
+    
+    def _save_window_geometry(self):
+        """Save current window geometry to preferences"""
+        try:
+            # Get current window state
+            geometry = self.root.geometry()
+            width, height, x, y = self._parse_geometry(geometry)
+            
+            # Check if maximized (varies by platform)
+            maximized = self.root.state() == 'zoomed'  # Windows/Linux
+            
+            # Update configuration
+            self.config_service.update_window_geometry(
+                width=width,
+                height=height,
+                x=x,
+                y=y,
+                maximized=maximized
+            )
+            
+        except Exception as e:
+            print(f"Error saving window geometry: {e}")
+    
+    def _parse_geometry(self, geometry_str: str) -> tuple:
+        """Parse geometry string like '600x500+100+200' into components"""
+        import re
+        
+        pattern = r'(\d+)x(\d+)\+?(-?\d+)\+?(-?\d+)'
+        match = re.match(pattern, geometry_str)
+        
+        if match:
+            width = int(match.group(1))
+            height = int(match.group(2))
+            x = int(match.group(3))
+            y = int(match.group(4))
+            return width, height, x, y
+        else:
+            # Fallback to defaults
+            return DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, 100, 100
 
     def destroy(self):
         if self.drag_drop_handler:

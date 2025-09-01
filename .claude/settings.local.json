@@ -88,7 +88,14 @@
       "Bash(taskkill:*)",
       "Bash(venv/Scripts/pytest.exe tests/unit/test_drag_drop_folder_support.py -v --tb=short)",
       "Bash(venv/Scripts/pytest.exe tests/integration/test_drag_drop_integration.py -v --tb=short)",
-      "Bash(venv/Scripts/pytest.exe tests/ui/test_drag_drop_interface.py -v --tb=short)"
+      "Bash(venv/Scripts/pytest.exe tests/ui/test_drag_drop_interface.py -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_user_preferences_settings.py -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_user_preferences_settings.py::TestAppConfiguration::test_add_recent_folder -v)",
+      "Bash(venv/Scripts/pytest.exe tests/unit/test_user_preferences_settings.py --tb=no -q)",
+      "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py --tb=short -v)",
+      "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py --tb=no -q)",
+      "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py::TestSettingsIntegration::test_ui_preferences_persistence_workflow -v --tb=short)",
+      "Bash(venv/Scripts/pytest.exe tests/integration/test_settings_integration.py::TestSettingsIntegration::test_normalization_engine_integration -v --tb=short)"
     ],
     "deny": [],
     "ask": [],
