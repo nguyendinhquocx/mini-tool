@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Build script for File Rename Tool
-Creates standalone Windows executable using PyInstaller
+Professional Build System for File Rename Tool
+
+Enhanced build automation with comprehensive Windows integration,
+version management, and distribution packaging capabilities.
 """
 
 import os

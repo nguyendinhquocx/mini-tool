@@ -1,0 +1,43 @@
+File Rename Tool License Agreement
+
+Copyright (c) 2025 File Rename Tool Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+VIETNAMESE TEXT PROCESSING DISCLAIMER:
+This software includes Vietnamese text normalization capabilities. While every
+effort has been made to ensure accuracy, users should verify results for
+critical applications. The software removes diacritical marks and performs
+character normalization based on common Vietnamese language patterns.
+
+USAGE TERMS:
+- This software is provided free of charge for personal and commercial use
+- No warranty is provided regarding data integrity or system compatibility
+- Users are responsible for backing up important files before processing
+- The software may create temporary files during operation
+- Network connectivity may be required for updates (future versions)
+
+THIRD PARTY COMPONENTS:
+This software may include components from third-party libraries. Their
+respective licenses and terms apply to those components.
+
+For questions, support, or updates, please visit:
+https://github.com/file-rename-tool
+
+Last updated: September 1, 2025
