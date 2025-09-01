@@ -659,7 +659,14 @@ class CompleteFileRenameApp:
         sys.argv = [sys.argv[0]]  # Keep only the script name
         
         try:
-            self.root = tk.Tk()
+            # Try to use TkinterDnD for drag-drop support, fallback to regular Tk
+            try:
+                from tkinterdnd2 import TkinterDnD
+                self.root = TkinterDnD.Tk()
+                print("Using TkinterDnD for enhanced drag-drop support")
+            except ImportError:
+                self.root = tk.Tk()
+                print("Using standard Tk (limited drag-drop support)")
         finally:
             # Restore original arguments
             sys.argv = original_argv
