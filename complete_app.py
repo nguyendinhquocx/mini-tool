@@ -187,27 +187,46 @@ class VietnameseNormalizer:
         self.cache.clear()  # Clear cache when rules change
     
     def normalize_filename(self, filename: str) -> str:
-        cache_key = f"{filename}_{hash(str(self.rules))}"
-        if cache_key in self.cache:
-            return self.cache[cache_key]
+        try:
+            # Create a safe cache key
+            rules_hash = hash(str(sorted(self.rules.items())))
+            cache_key = f"{filename}_{rules_hash}"
+            if cache_key in self.cache:
+                return self.cache[cache_key]
+        except Exception:
+            # If cache key creation fails, continue without caching
+            cache_key = None
         
         name, ext = os.path.splitext(filename)
         
-        # Apply normalization rules
+        # Apply normalization rules with error handling
         result = name
         
-        if self.rules.get("remove_diacritics", True):
-            result = unidecode.unidecode(result)
+        try:
+            if self.rules.get("remove_diacritics", True):
+                result = unidecode.unidecode(result)
+        except Exception as e:
+            print(f"Warning: Failed to remove diacritics from '{result}': {e}")
+            # Continue with original text if unidecode fails
         
-        if self.rules.get("clean_special_chars", True):
-            result = self._clean_special_chars(result)
+        try:
+            if self.rules.get("clean_special_chars", True):
+                result = self._clean_special_chars(result)
+        except Exception as e:
+            print(f"Warning: Failed to clean special chars from '{result}': {e}")
         
-        if self.rules.get("normalize_whitespace", True):
-            result = ' '.join(result.split())
-            result = result.strip()
+        try:
+            if self.rules.get("normalize_whitespace", True):
+                result = ' '.join(result.split())
+                result = result.strip()
+        except Exception as e:
+            print(f"Warning: Failed to normalize whitespace in '{result}': {e}")
         
-        if self.rules.get("lowercase_conversion", True):
-            result = result.lower()
+        try:
+            if self.rules.get("lowercase_conversion", True):
+                result = result.lower()
+        except Exception as e:
+            print(f"Warning: Failed to convert to lowercase '{result}': {e}")
         
         # Apply custom replacements
         custom_replacements = self.rules.get("custom_replacements", {})
@@ -220,7 +239,13 @@ class VietnameseNormalizer:
         else:
             final_result = result + ext.lower()
         
-        self.cache[cache_key] = final_result
+        # Cache result if possible
+        if cache_key:
+            try:
+                self.cache[cache_key] = final_result
+            except Exception:
+                pass  # Ignore cache errors
+        
         return final_result
     
     def _clean_special_chars(self, text: str) -> str:
@@ -1188,9 +1213,18 @@ Double-click Toggle file selection
                         status = "Sẵn sàng" if filename != normalized else "Không đổi"
                         
                         # Check for conflicts within the same directory
-                        existing_files = [f[0] for f in files if (len(f) >= 3 and f[2] == relative_path) or (len(f) == 2 and relative_path == "")]
-                        if normalized != filename and normalized in existing_files:
-                            status = "Trùng tên!"
+                        # Build target path to check if it already exists on disk
+                        if relative_path:
+                            target_path = os.path.join(self.current_folder, relative_path, normalized)
+                            original_path = os.path.join(self.current_folder, relative_path, filename)
+                        else:
+                            target_path = os.path.join(self.current_folder, normalized)
+                            original_path = os.path.join(self.current_folder, filename)
+                        
+                        # Check for conflicts: target exists but is not the same as original (case-sensitive)
+                        if normalized != filename:
+                            if os.path.exists(target_path) and os.path.abspath(target_path).lower() != os.path.abspath(original_path).lower():
+                                status = "Trùng tên!"
                         
                         # Format file size
                         if size < 1024:
@@ -1298,7 +1332,17 @@ Double-click Toggle file selection
     
     def toggle_selection(self, event):
         """Toggle selection of clicked file"""
-        item = self.tree.selection()[0]
+        selection = self.tree.selection()
+        if not selection:
+            # No item selected, try to get item from click position
+            item = self.tree.identify('item', event.x, event.y)
+            if item:
+                self.tree.selection_set(item)
+            else:
+                return
+        else:
+            item = selection[0]
+        
         if item:
             # Find corresponding data item
             item_index = self.tree.index(item)
@@ -1331,7 +1375,7 @@ Double-click Toggle file selection
         """Handle double-click events - toggle selection or edit"""
         region = self.tree.identify("region", event.x, event.y)
         if region == "cell":
-            column = self.tree.identify_column(event.x, event.y)
+            column = self.tree.identify_column(event.x)
             # Column #3 is "new" (0-based: selected, current, new, status, size)
             if column == "#3":  # "new" column
                 item = self.tree.identify('item', event.x, event.y)
@@ -1722,7 +1766,8 @@ Double-click Toggle file selection
                 self.execute_rename_operation(files_to_rename, progress)
                 duration = int((time.time() - start_time) * 1000)
             except Exception as e:
-                self.root.after(0, lambda: self.show_error(f"Rename operation failed: {str(e)}"))
+                error_msg = f"Rename operation failed: {str(e)}"
+                self.root.after(0, lambda msg=error_msg: self.show_error(msg))
             finally:
                 self.root.after(0, progress.close)
         
@@ -1744,34 +1789,71 @@ Double-click Toggle file selection
                 break
             
             try:
-                # Handle files with relative paths
+                # Get the original filename and new filename
+                old_filename = item['filename']
+                new_filename = item.get('custom_name') or self.normalizer.normalize_filename(old_filename)
+                
+                # Skip if names are the same (no change needed)
+                if old_filename == new_filename:
+                    continue
+                
+                # Handle files with relative paths (in subdirectories)
                 if 'relative_path' in item and item['relative_path']:
                     # File in subdirectory
-                    old_filename = item['filename']
-                    # Use custom name if available, otherwise normalize
-                    new_filename = item.get('custom_name') or self.normalizer.normalize_filename(old_filename)
-                    
                     old_path = os.path.join(self.current_folder, item['relative_path'], old_filename)
                     new_path = os.path.join(self.current_folder, item['relative_path'], new_filename)
                 else:
-                    # File in root directory (backward compatibility)
-                    old_path = os.path.join(self.current_folder, item['current'])
-                    new_path = os.path.join(self.current_folder, item['new'])
+                    # File in root directory
+                    old_path = os.path.join(self.current_folder, old_filename)
+                    new_path = os.path.join(self.current_folder, new_filename)
                 
-                if not os.path.exists(new_path):
-                    os.rename(old_path, new_path)
-                    success_count += 1
-                    details.append(f"✓ {item['current']} → {item['new']}")
-                else:
+                # Check if source file exists
+                if not os.path.exists(old_path):
                     failed_count += 1
-                    details.append(f"✗ {item['current']} → target exists")
+                    details.append(f"✗ {old_filename} → source file not found")
+                    continue
+                
+                # Check if target already exists (handle case-insensitive filesystems)
+                if os.path.exists(new_path):
+                    # Check if it's the same file (case-only change on Windows)
+                    if os.path.abspath(new_path).lower() == os.path.abspath(old_path).lower():
+                        # Case-only rename on case-insensitive filesystem
+                        # Need to do a two-step rename to avoid conflicts
+                        try:
+                            temp_path = old_path + ".tmp_rename"
+                            os.rename(old_path, temp_path)
+                            os.rename(temp_path, new_path)
+                            success_count += 1
+                            details.append(f"✓ {old_filename} → {new_filename} (case change)")
+                            continue
+                        except Exception as e:
+                            failed_count += 1
+                            details.append(f"✗ {old_filename} → case rename failed: {str(e)[:30]}")
+                            continue
+                    else:
+                        # True conflict - different file with same name
+                        failed_count += 1
+                        details.append(f"✗ {old_filename} → target already exists: {new_filename}")
+                        continue
+                
+                # Perform rename
+                os.rename(old_path, new_path)
+                success_count += 1
+                details.append(f"✓ {old_filename} → {new_filename}")
                 
             except PermissionError:
                 failed_count += 1
-                details.append(f"✗ {item['current']} → permission denied")
+                details.append(f"✗ {old_filename} → permission denied")
+            except FileNotFoundError:
+                failed_count += 1
+                details.append(f"✗ {old_filename} → file not found")
+            except FileExistsError:
+                failed_count += 1
+                details.append(f"✗ {old_filename} → target file already exists")
             except Exception as e:
                 failed_count += 1
-                details.append(f"✗ {item['current']} → error: {str(e)[:50]}")
+                error_msg = str(e)
+                details.append(f"✗ {old_filename} → error: {error_msg[:50]}")
             
             # Update progress với detailed info
             percentage = ((i + 1) / total) * 100
