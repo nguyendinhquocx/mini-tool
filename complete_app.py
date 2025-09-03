@@ -1125,10 +1125,13 @@ Right-click Context menu with file operations
             self.folder_var.set(folder)
     
     def start_quick_scan(self):
-        """Start quick scan in background thread"""
+        """Start quick scan in background thread - auto browse if no folder selected"""
         if not self.current_folder or not os.path.exists(self.current_folder):
-            messagebox.showwarning("No Folder", "Please select a folder first.")
-            return
+            # Auto-open browse dialog instead of showing warning
+            self.browse_folder()
+            # Check again after browse
+            if not self.current_folder or not os.path.exists(self.current_folder):
+                return  # User cancelled browse dialog
         
         # Run quick scan in background
         import threading
