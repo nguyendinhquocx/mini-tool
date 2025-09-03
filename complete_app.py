@@ -589,6 +589,230 @@ File đã xử lý: {stats['total_files']}
         # Close button
         ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=10)
 
+class FindReplaceDialog:
+    """Find & Replace dialog for custom text replacements"""
+    
+    def __init__(self, parent, config_service):
+        self.parent = parent
+        self.config_service = config_service
+        self.dialog = None
+        self.replacements = {}  # Store find->replace mappings
+        
+    def show(self):
+        """Show the Find & Replace dialog"""
+        if self.dialog:
+            self.dialog.lift()
+            return
+            
+        self.dialog = tk.Toplevel(self.parent)
+        self.dialog.title("Find & Replace - Custom Text Replacements")
+        self.dialog.geometry("650x500")
+        self.dialog.transient(self.parent)
+        self.dialog.grab_set()
+        
+        # Center the dialog
+        self.dialog.geometry("+%d+%d" % (
+            self.parent.winfo_rootx() + 50,
+            self.parent.winfo_rooty() + 50
+        ))
+        
+        self.setup_ui()
+        self.load_current_replacements()
+        
+        # Bind close event
+        self.dialog.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+    def setup_ui(self):
+        """Setup the dialog UI"""
+        # Main frame
+        main_frame = ttk.Frame(self.dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Instructions
+        instructions = ttk.Label(main_frame, text="Tạo quy tắc thay thế/xoá từ trong tên file (để trống 'Replace with' để xoá từ)", 
+                                font=('TkDefaultFont', 9))
+        instructions.pack(anchor=tk.W, pady=(0, 10))
+        
+        # Input frame
+        input_frame = ttk.LabelFrame(main_frame, text="Thêm quy tắc mới", padding="10")
+        input_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Find text
+        ttk.Label(input_frame, text="Tìm:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        self.find_var = tk.StringVar()
+        self.find_entry = ttk.Entry(input_frame, textvariable=self.find_var, width=30)
+        self.find_entry.grid(row=0, column=1, padx=(0, 10), sticky=(tk.W, tk.E))
+        
+        # Replace text
+        ttk.Label(input_frame, text="Thay thế:").grid(row=0, column=2, sticky=tk.W, padx=(0, 5))
+        self.replace_var = tk.StringVar()
+        self.replace_entry = ttk.Entry(input_frame, textvariable=self.replace_var, width=30)
+        self.replace_entry.grid(row=0, column=3, padx=(0, 10), sticky=(tk.W, tk.E))
+        
+        # Add button
+        add_button = ttk.Button(input_frame, text="Thêm", command=self.add_replacement)
+        add_button.grid(row=0, column=4)
+        
+        # Configure column weights
+        input_frame.columnconfigure(1, weight=1)
+        input_frame.columnconfigure(3, weight=1)
+        
+        # Replacements list frame
+        list_frame = ttk.LabelFrame(main_frame, text="Quy tắc hiện tại", padding="10")
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Treeview for replacements
+        columns = ('find', 'replace', 'action')
+        self.tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=12)
+        
+        # Define headings
+        self.tree.heading('find', text='Tìm')
+        self.tree.heading('replace', text='Thay thế')
+        self.tree.heading('action', text='Hành động')
+        
+        # Define column widths
+        self.tree.column('find', width=200)
+        self.tree.column('replace', width=200)  
+        self.tree.column('action', width=100)
+        
+        # Scrollbars
+        v_scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=v_scrollbar.set)
+        
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Bind double-click to edit
+        self.tree.bind('<Double-1>', self.edit_replacement)
+        self.tree.bind('<Delete>', self.delete_replacement)
+        
+        # Button frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # Left side buttons
+        ttk.Button(button_frame, text="Xoá đã chọn", command=self.delete_replacement).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(button_frame, text="Xoá tất cả", command=self.clear_all).pack(side=tk.LEFT)
+        
+        # Right side buttons  
+        ttk.Button(button_frame, text="Huỷ", command=self.on_close).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="Áp dụng", command=self.apply_replacements).pack(side=tk.RIGHT)
+        
+        # Focus on find entry
+        self.find_entry.focus_set()
+        
+        # Bind Enter key to add
+        self.find_entry.bind('<Return>', lambda e: self.add_replacement())
+        self.replace_entry.bind('<Return>', lambda e: self.add_replacement())
+    
+    def load_current_replacements(self):
+        """Load current custom replacements from config"""
+        current_replacements = self.config_service.config["normalization"].get("custom_replacements", {})
+        self.replacements = current_replacements.copy()
+        self.refresh_tree()
+    
+    def refresh_tree(self):
+        """Refresh the treeview with current replacements"""
+        # Clear existing items
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        # Add current replacements
+        for find_text, replace_text in self.replacements.items():
+            action = "Xoá" if replace_text == "" else "Thay thế"
+            display_replace = "(xoá)" if replace_text == "" else replace_text
+            self.tree.insert('', tk.END, values=(find_text, display_replace, action))
+    
+    def add_replacement(self):
+        """Add a new replacement rule"""
+        find_text = self.find_var.get().strip()
+        replace_text = self.replace_var.get()
+        
+        if not find_text:
+            messagebox.showwarning("Lỗi", "Vui lòng nhập từ cần tìm")
+            self.find_entry.focus_set()
+            return
+        
+        # Add to replacements dict
+        self.replacements[find_text] = replace_text
+        
+        # Clear inputs
+        self.find_var.set("")
+        self.replace_var.set("")
+        
+        # Refresh display
+        self.refresh_tree()
+        
+        # Focus back to find entry
+        self.find_entry.focus_set()
+    
+    def edit_replacement(self, event):
+        """Edit selected replacement by double-click"""
+        selection = self.tree.selection()
+        if not selection:
+            return
+            
+        item = selection[0]
+        values = self.tree.item(item)['values']
+        find_text = values[0]
+        replace_text = values[1]
+        
+        # Handle (xoá) display
+        if replace_text == "(xoá)":
+            replace_text = ""
+        
+        # Populate entry fields
+        self.find_var.set(find_text)
+        self.replace_var.set(replace_text)
+        
+        # Remove from list (will be re-added when user clicks Add)
+        del self.replacements[find_text]
+        self.refresh_tree()
+        
+        # Focus on find entry
+        self.find_entry.focus_set()
+    
+    def delete_replacement(self, event=None):
+        """Delete selected replacement"""
+        selection = self.tree.selection()
+        if not selection:
+            return
+            
+        item = selection[0]
+        find_text = self.tree.item(item)['values'][0]
+        
+        # Remove from replacements dict
+        if find_text in self.replacements:
+            del self.replacements[find_text]
+        
+        # Refresh display
+        self.refresh_tree()
+    
+    def clear_all(self):
+        """Clear all replacements"""
+        if messagebox.askyesno("Xác nhận", "Xoá tất cả quy tắc thay thế?"):
+            self.replacements.clear()
+            self.refresh_tree()
+    
+    def apply_replacements(self):
+        """Apply the replacements to config and close"""
+        # Update config
+        self.config_service.config["normalization"]["custom_replacements"] = self.replacements.copy()
+        self.config_service.save_config()
+        
+        # Show confirmation
+        count = len(self.replacements)
+        messagebox.showinfo("Thành công", f"Đã áp dụng {count} quy tắc thay thế.\n\nQuy tắc sẽ được sử dụng trong các lần đổi tên tiếp theo.")
+        
+        # Close dialog
+        self.on_close()
+    
+    def on_close(self):
+        """Handle dialog close"""
+        self.dialog.grab_release()
+        self.dialog.destroy()
+        self.dialog = None
+
 class ProgressDialog:
     """Enhanced progress dialog với more features"""
     def __init__(self, parent: tk.Tk):
@@ -900,6 +1124,11 @@ class CompleteFileRenameApp:
                                            command=self.import_rename_list)
         self.import_list_button.pack(side=tk.LEFT, padx=(0, 5))
         
+        # Find & Replace button
+        self.find_replace_button = ttk.Button(workflow_buttons_frame, text="Find & Replace", 
+                                            command=self.show_find_replace)
+        self.find_replace_button.pack(side=tk.LEFT, padx=(0, 5))
+        
         # Traditional buttons (existing functionality)
         button_frame = ttk.Frame(action_frame)
         button_frame.pack(side=tk.RIGHT)
@@ -935,6 +1164,8 @@ class CompleteFileRenameApp:
         menubar.add_cascade(label="Chỉnh Sửa", menu=edit_menu)
         edit_menu.add_command(label="Chọn Tất Cả", command=self.select_all, accelerator="Ctrl+A")
         edit_menu.add_command(label="Bỏ Chọn Tất Cả", command=self.deselect_all, accelerator="Ctrl+D")
+        edit_menu.add_separator()
+        edit_menu.add_command(label="Tìm & Thay Thế...", command=self.show_find_replace, accelerator="Ctrl+H")
         edit_menu.add_separator()
         edit_menu.add_command(label="Cài Đặt...", command=self.show_settings, accelerator="Ctrl+,")
         
@@ -973,6 +1204,7 @@ class CompleteFileRenameApp:
         self.root.bind('<F4>', lambda e: self.start_quick_scan())
         self.root.bind('<Control-Shift-E>', lambda e: self.export_scan_results())
         self.root.bind('<Control-Shift-I>', lambda e: self.import_rename_list())
+        self.root.bind('<Control-h>', lambda e: self.show_find_replace())
     
     def setup_drag_drop(self):
         """Setup drag and drop functionality"""
@@ -998,12 +1230,21 @@ class CompleteFileRenameApp:
         if self.history_service.get_last_operation():
             self.undo_button.config(state="normal")
     
+    
     def show_settings(self):
         """Show settings dialog"""
         settings = SettingsDialog(self.root, self.config_service)
         settings.show()
         
         # Update normalizer with new rules after settings change
+        self.normalizer.update_rules(self.config_service.get_normalization_rules())
+    
+    def show_find_replace(self):
+        """Show find and replace dialog"""
+        find_replace = FindReplaceDialog(self.root, self.config_service)
+        find_replace.show()
+        
+        # Update normalizer with new replacement rules after dialog closes
         self.normalizer.update_rules(self.config_service.get_normalization_rules())
     
     def show_about(self):

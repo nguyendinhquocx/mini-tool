@@ -94,13 +94,13 @@ VSVersionInfo(
     StringFileInfo([
       StringTable(
         '040904E4', [
-        StringStruct('CompanyName', 'File Rename Tool Team'),
-        StringStruct('FileDescription', 'Vietnamese File Rename Tool'),
+        StringStruct('CompanyName', 'Mini Tool File Team'),
+        StringStruct('FileDescription', 'Mini Tool File - Vietnamese File Rename Tool'),
         StringStruct('FileVersion', '{__version__}'),
         StringStruct('InternalName', '{APP_NAME}'),
-        StringStruct('LegalCopyright', 'Copyright © 2025 File Rename Tool Team'),
+        StringStruct('LegalCopyright', 'Copyright © 2025 Mini Tool File Team'),
         StringStruct('OriginalFilename', '{APP_NAME}.exe'),
-        StringStruct('ProductName', 'File Rename Tool'),
+        StringStruct('ProductName', 'Mini Tool File'),
         StringStruct('ProductVersion', '{__version__}')
       ])
     ]),

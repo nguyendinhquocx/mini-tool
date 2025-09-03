@@ -13,18 +13,18 @@ from typing import Optional
 
 # Basic version information (legacy compatibility)
 __version__ = "1.0.0"
-__title__ = "File Rename Tool"
+__title__ = "Mini Tool File"
 __description__ = "Vietnamese File Normalization Utility"
 __author__ = "File Rename Tool Team"
 __copyright__ = "2025 File Rename Tool Team"
 
 # Build metadata - populated during build process
-BUILD_DATE = "2025-09-01T14:58:14.072402"
-BUILD_COMMIT = "7d58668"
+BUILD_DATE = "2025-09-04T01:11:53.970781"
+BUILD_COMMIT = "6e7fc1c"
 BUILD_VERSION = __version__
 
 # Application metadata for PyInstaller
-APP_NAME = "FileRenameTool"
+APP_NAME = "MiniToolFile"
 APP_VERSION = __version__
 APP_DESCRIPTION = __description__
 APP_AUTHOR = __author__
