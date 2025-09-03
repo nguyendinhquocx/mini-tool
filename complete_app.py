@@ -899,6 +899,8 @@ class CompleteFileRenameApp:
         operation_menu.add_command(label="Hoàn Tác Thao Tác Cuối", command=self.undo_last, accelerator="Ctrl+Z")
         operation_menu.add_separator()
         operation_menu.add_command(label="Làm Mới Xem Trước", command=self.refresh_preview, accelerator="F5")
+        operation_menu.add_separator()
+        operation_menu.add_command(label="Mở Thư Mục Chứa File", command=self.open_selected_file_location, accelerator="Ctrl+L")
         
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -917,6 +919,7 @@ class CompleteFileRenameApp:
         self.root.bind('<F5>', lambda e: self.refresh_preview())
         self.root.bind('<Control-z>', lambda e: self.undo_last())
         self.root.bind('<Control-comma>', lambda e: self.show_settings())
+        self.root.bind('<Control-l>', lambda e: self.open_selected_file_location())
     
     def setup_drag_drop(self):
         """Setup drag and drop functionality"""
@@ -981,7 +984,14 @@ Ctrl+D - Deselect all files
 F5 - Refresh preview
 Ctrl+Z - Undo last operation
 Ctrl+E - Export preview
+Ctrl+L - Open file location in explorer
 Ctrl+, - Open settings
+
+CONTEXT MENU (Right-click):
+• Edit filename (F2)
+• Open file location in explorer
+• Copy file path to clipboard
+• Reset to automatic normalization
 
 NORMALIZATION RULES:
 • Removes Vietnamese diacritics (ủ → u, đ → d)
@@ -1021,11 +1031,14 @@ Ctrl+O      Select folder
 Ctrl+A      Select all files
 Ctrl+D      Deselect all files
 Ctrl+E      Export preview list
+Ctrl+L      Open file location in explorer
 Ctrl+Z      Undo last operation
 Ctrl+,      Open settings
 Ctrl+Q      Exit application
 F5          Refresh preview/Rename files
+F2          Edit filename (when file selected)
 Double-click Toggle file selection
+Right-click Context menu with file operations
         """
         messagebox.showinfo("Keyboard Shortcuts", shortcuts.strip())
     
@@ -1639,10 +1652,19 @@ Double-click Toggle file selection
             context_menu.add_command(label="Chỉnh Sửa Tên (F2)", command=lambda: self.edit_filename(item))
             context_menu.add_separator()
             
-            # Check if this item has manual edit
+            # Check if this item has manual edit and add file operations
             item_index = self.tree.index(item)
             if 0 <= item_index < len(self.preview_data):
                 data_item = self.preview_data[item_index]
+                
+                # File location options
+                context_menu.add_command(label="Mở Thư Mục Chứa File", 
+                                       command=lambda: self.open_file_location(item_index))
+                context_menu.add_command(label="Sao Chép Đường Dẫn File", 
+                                       command=lambda: self.copy_file_path(item_index))
+                context_menu.add_separator()
+                
+                # Manual edit options
                 if data_item.get('is_manual', False):
                     context_menu.add_command(label="Khôi Phục Tự Động", 
                                            command=lambda: self.reset_to_auto(item_index))
@@ -1652,6 +1674,107 @@ Double-click Toggle file selection
                 context_menu.tk_popup(event.x_root, event.y_root)
             finally:
                 context_menu.grab_release()
+    
+    def open_file_location(self, item_index):
+        """Mở thư mục chứa file được chọn"""
+        if not (0 <= item_index < len(self.preview_data)):
+            return
+        
+        data_item = self.preview_data[item_index]
+        
+        try:
+            # Smart path building - handle both relative_path and path in current field
+            if data_item.get('relative_path'):
+                # Case 1: Explicit relative_path field
+                actual_filename = data_item.get('filename', os.path.basename(data_item['current']))
+                file_path = os.path.join(self.current_folder, data_item['relative_path'], actual_filename)
+                folder_path = os.path.join(self.current_folder, data_item['relative_path'])
+            else:
+                # Case 2: Path info might be in 'current' field
+                current_path = data_item['current']
+                if '\\' in current_path or '/' in current_path:
+                    # Current contains path - use it directly
+                    file_path = os.path.join(self.current_folder, current_path)
+                    folder_path = os.path.dirname(file_path)
+                else:
+                    # Simple filename in root
+                    file_path = os.path.join(self.current_folder, current_path)
+                    folder_path = self.current_folder
+            
+            # Convert to absolute path for safety
+            file_path = os.path.abspath(file_path)
+            folder_path = os.path.abspath(folder_path)
+            
+            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                messagebox.showwarning("File không tồn tại", 
+                                     f"Không thể tìm thấy file:\n{file_path}")
+                return
+            
+            # Open file explorer and select the file
+            import subprocess
+            import platform
+            
+            system = platform.system()
+            if system == "Windows":
+                # Use Windows Explorer to select file
+                subprocess.run(['explorer', '/select,', file_path], check=False)
+            elif system == "Darwin":  # macOS
+                subprocess.run(['open', '-R', file_path], check=False)
+            else:  # Linux and others
+                subprocess.run(['xdg-open', folder_path], check=False)
+                
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể mở thư mục: {str(e)}")
+    
+    def open_selected_file_location(self):
+        """Mở thư mục của file đang được chọn (keyboard shortcut)"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showinfo("Thông báo", "Vui lòng chọn một file trong danh sách.")
+            return
+        
+        try:
+            item = selection[0]
+            item_index = self.tree.index(item)
+            self.open_file_location(item_index)
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể mở thư mục: {str(e)}")
+    
+    def copy_file_path(self, item_index):
+        """Sao chép đường dẫn file vào clipboard"""
+        if not (0 <= item_index < len(self.preview_data)):
+            return
+        
+        data_item = self.preview_data[item_index]
+        
+        try:
+            # Smart path building - handle both relative_path and path in current field
+            if data_item.get('relative_path'):
+                # Case 1: Explicit relative_path field
+                actual_filename = data_item.get('filename', os.path.basename(data_item['current']))
+                file_path = os.path.join(self.current_folder, data_item['relative_path'], actual_filename)
+            else:
+                # Case 2: Path info might be in 'current' field
+                current_path = data_item['current']
+                if '\\' in current_path or '/' in current_path:
+                    # Current contains path - use it directly
+                    file_path = os.path.join(self.current_folder, current_path)
+                else:
+                    # Simple filename in root
+                    file_path = os.path.join(self.current_folder, current_path)
+            
+            # Convert to absolute path
+            abs_path = os.path.abspath(file_path)
+            
+            # Copy to clipboard silently
+            self.root.clipboard_clear()
+            self.root.clipboard_append(abs_path)
+            self.root.update()  # Keep clipboard after window closes
+            
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể sao chép đường dẫn: {str(e)}")
     
     def reset_to_auto(self, item_index):
         """Reset filename to automatic normalization"""
@@ -1988,42 +2111,71 @@ Double-click Toggle file selection
             return
         
         try:
+            # Generate default filename with timestamp
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_filename = f"file_{timestamp}"
+            
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
                 filetypes=[("Excel files", "*.xlsx"), ("CSV files", "*.csv"), ("All files", "*.*")],
-                title="Export Preview List"
+                title="Export Preview List",
+                initialfile=default_filename
             )
             
             if not file_path:
                 return
             
-            # Prepare data for export
+            # Prepare data for export - clean unicode strings
             export_data = []
             for item in self.preview_data:
-                export_data.append({
-                    'Selected': 'Yes' if item['selected'] else 'No',
-                    'Current Name': item['current'],
-                    'New Name': item['new'],
-                    'Status': item['status'],
-                    'Size': item['size'],
-                    'Will Change': 'Yes' if item['changed'] else 'No'
-                })
-            
-            # Create DataFrame
-            df = pd.DataFrame(export_data)
+                try:
+                    export_data.append({
+                        'Selected': 'Yes' if item['selected'] else 'No',
+                        'Current Name': str(item['current']).encode('utf-8', errors='replace').decode('utf-8'),
+                        'New Name': str(item['new']).encode('utf-8', errors='replace').decode('utf-8'),
+                        'Status': str(item['status']).encode('utf-8', errors='replace').decode('utf-8'),
+                        'Size': str(item['size']),
+                        'Will Change': 'Yes' if item['changed'] else 'No'
+                    })
+                except Exception as item_error:
+                    print(f"Error processing item: {item_error}")
+                    continue
             
             # Export based on file extension
             if file_path.endswith('.xlsx'):
-                df.to_excel(file_path, index=False)
+                try:
+                    # Try pandas first
+                    import pandas as pd
+                    df = pd.DataFrame(export_data)
+                    df.to_excel(file_path, index=False)
+                except ImportError:
+                    # Fallback to CSV if pandas not available
+                    file_path = file_path.replace('.xlsx', '.csv')
+                    self._export_to_csv(export_data, file_path)
             else:
-                df.to_csv(file_path, index=False, encoding='utf-8-sig')
+                # Export to CSV
+                self._export_to_csv(export_data, file_path)
             
             messagebox.showinfo("Export Complete", 
-                              f"Preview exported to: {os.path.basename(file_path)}\n\n"
-                              f"Exported {len(export_data)} files.")
+                              f"Exported {len(export_data)} files to:\n{os.path.basename(file_path)}")
             
         except Exception as e:
             messagebox.showerror("Export Error", f"Error exporting: {str(e)}")
+    
+    def _export_to_csv(self, data, file_path):
+        """Export data to CSV without pandas dependency"""
+        import csv
+        
+        if not data:
+            return
+        
+        with open(file_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
+            fieldnames = data[0].keys()
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in data:
+                writer.writerow(row)
     
     def clear_preview(self):
         """Clear the preview display"""
