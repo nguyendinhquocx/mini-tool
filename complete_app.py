@@ -754,6 +754,30 @@ class CompleteFileRenameApp:
         self.folder_entry = ttk.Entry(folder_frame, textvariable=self.folder_var, state="readonly")
         self.folder_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(0, 5))
         
+        # Bind double-click to open browse folder
+        self.folder_entry.bind('<Double-Button-1>', lambda e: self.browse_folder())
+        folder_frame.bind('<Double-Button-1>', lambda e: self.browse_folder())
+        
+        # Add hover effect for visual feedback
+        def on_enter(e):
+            if hasattr(e.widget, 'configure'):
+                try:
+                    e.widget.configure(cursor='hand2')
+                except:
+                    pass
+        
+        def on_leave(e):
+            if hasattr(e.widget, 'configure'):
+                try:
+                    e.widget.configure(cursor='')
+                except:
+                    pass
+        
+        self.folder_entry.bind('<Enter>', on_enter)
+        self.folder_entry.bind('<Leave>', on_leave)
+        folder_frame.bind('<Enter>', on_enter) 
+        folder_frame.bind('<Leave>', on_leave)
+        
         self.browse_button = ttk.Button(folder_frame, text="Duyệt", command=self.browse_folder)
         self.browse_button.grid(row=0, column=2)
         
@@ -1021,6 +1045,10 @@ CONTEXT MENU (Right-click):
 • Open file location in explorer
 • Copy file path to clipboard
 • Reset to automatic normalization
+
+UI SHORTCUTS:
+• Double-click folder path to browse for new folder
+• Drag and drop folders onto the application
 
 NORMALIZATION RULES:
 • Removes Vietnamese diacritics (ủ → u, đ → d)
