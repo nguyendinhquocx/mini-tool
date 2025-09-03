@@ -715,9 +715,9 @@ class CompleteFileRenameApp:
         
         # UI Components
         self.folder_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="Chọn thư mục để bắt đầu")
+        self.status_var = tk.StringVar(value="Chọn thư mục")
         self.include_subfolders_var = tk.BooleanVar(value=False)
-        self.max_depth_var = tk.IntVar(value=3)
+        self.max_depth_var = tk.IntVar(value=10)
         
         self.setup_ui()
         self.setup_bindings()
@@ -739,7 +739,7 @@ class CompleteFileRenameApp:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Folder selection section với drag-drop visual
-        folder_frame = ttk.LabelFrame(main_frame, text="Chọn Thư Mục (Kéo thả thư mục vào đây hoặc nhấn Ctrl+O)", padding="10")
+        folder_frame = ttk.LabelFrame(main_frame, text="Thư Mục", padding="10")
         folder_frame.pack(fill=tk.X, pady=(0, 10))
         folder_frame.columnconfigure(1, weight=1)
         
@@ -776,17 +776,23 @@ class CompleteFileRenameApp:
         )
         self.include_subfolders_cb.pack(side=tk.LEFT)
         
-        # Depth limit
-        ttk.Label(options_frame, text="Độ sâu tối đa:").pack(side=tk.LEFT, padx=(20, 5))
-        depth_spin = ttk.Spinbox(
+        # Depth limit (will be shown/hidden based on subfolder checkbox)
+        self.depth_label = ttk.Label(options_frame, text="Độ sâu tối đa:")
+        self.depth_label.pack(side=tk.LEFT, padx=(20, 5))
+        
+        self.depth_spin = ttk.Spinbox(
             options_frame, 
             from_=1, 
-            to=5, 
+            to=10, 
             width=5, 
             textvariable=self.max_depth_var,
             command=self.on_subfolder_option_changed
         )
-        depth_spin.pack(side=tk.LEFT)
+        self.depth_spin.pack(side=tk.LEFT)
+        
+        # Initially hide depth controls since subfolders is False by default
+        self.depth_label.pack_forget()
+        self.depth_spin.pack_forget()
         
         # File preview section with enhanced info
         preview_frame = ttk.LabelFrame(main_frame, text="Xem Trước Đổi Tên File", padding="10")
@@ -851,24 +857,40 @@ class CompleteFileRenameApp:
         self.status_label.pack(side=tk.LEFT)
         
         # Action buttons
+        # Workflow buttons (new scan-first approach)
+        workflow_frame = ttk.LabelFrame(action_frame, text="Quick Scan")
+        workflow_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        workflow_buttons_frame = ttk.Frame(workflow_frame)
+        workflow_buttons_frame.pack(pady=5)
+        
+        self.quick_scan_button = ttk.Button(workflow_buttons_frame, text="Scan", 
+                                          command=self.start_quick_scan)
+        self.quick_scan_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.export_scan_button = ttk.Button(workflow_buttons_frame, text="Xuất file", 
+                                           command=self.export_scan_results, state="disabled")
+        self.export_scan_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.import_list_button = ttk.Button(workflow_buttons_frame, text="Nhập file", 
+                                           command=self.import_rename_list)
+        self.import_list_button.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Traditional buttons (existing functionality)
         button_frame = ttk.Frame(action_frame)
         button_frame.pack(side=tk.RIGHT)
         
-        self.rename_button = ttk.Button(button_frame, text="Đổi Tên File Đã Chọn", 
+        self.rename_button = ttk.Button(button_frame, text="Đổi Tên", 
                                        command=self.rename_files, state="disabled")
         self.rename_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.undo_button = ttk.Button(button_frame, text="Hoàn Tác Thao Tác Cuối", 
+        self.undo_button = ttk.Button(button_frame, text="Hoàn Tác", 
                                      command=self.undo_last, state="disabled")
         self.undo_button.pack(side=tk.LEFT, padx=(0, 5))
         
-        self.export_button = ttk.Button(button_frame, text="Xuất Danh Sách", 
+        self.export_button = ttk.Button(button_frame, text="Xuất", 
                                        command=self.export_preview)
-        self.export_button.pack(side=tk.LEFT, padx=(0, 5))
-        
-        self.settings_button = ttk.Button(button_frame, text="Cài Đặt", 
-                                         command=self.show_settings)
-        self.settings_button.pack(side=tk.LEFT)
+        self.export_button.pack(side=tk.LEFT)
     
     def create_menu_bar(self):
         """Create application menu bar"""
@@ -900,6 +922,10 @@ class CompleteFileRenameApp:
         operation_menu.add_separator()
         operation_menu.add_command(label="Làm Mới Xem Trước", command=self.refresh_preview, accelerator="F5")
         operation_menu.add_separator()
+        operation_menu.add_command(label="Quick Scan", command=self.start_quick_scan, accelerator="F4")
+        operation_menu.add_command(label="Export Files Need Renaming", command=self.export_scan_results, accelerator="Ctrl+Shift+E")
+        operation_menu.add_command(label="Import Rename List", command=self.import_rename_list, accelerator="Ctrl+Shift+I")
+        operation_menu.add_separator()
         operation_menu.add_command(label="Mở Thư Mục Chứa File", command=self.open_selected_file_location, accelerator="Ctrl+L")
         
         # Help menu
@@ -920,6 +946,9 @@ class CompleteFileRenameApp:
         self.root.bind('<Control-z>', lambda e: self.undo_last())
         self.root.bind('<Control-comma>', lambda e: self.show_settings())
         self.root.bind('<Control-l>', lambda e: self.open_selected_file_location())
+        self.root.bind('<F4>', lambda e: self.start_quick_scan())
+        self.root.bind('<Control-Shift-E>', lambda e: self.export_scan_results())
+        self.root.bind('<Control-Shift-I>', lambda e: self.import_rename_list())
     
     def setup_drag_drop(self):
         """Setup drag and drop functionality"""
@@ -1079,13 +1108,33 @@ Right-click Context menu with file operations
             self.config_service.save_config()
     
     def on_subfolder_option_changed(self):
-        """Handle subfolder option changes - refresh preview if folder is selected"""
+        """Handle subfolder option changes - show/hide depth controls and refresh"""
+        # Show/hide depth controls based on subfolder checkbox
+        if self.include_subfolders_var.get():
+            self.depth_label.pack(side=tk.LEFT, padx=(20, 5))
+            self.depth_spin.pack(side=tk.LEFT)
+        else:
+            self.depth_label.pack_forget()
+            self.depth_spin.pack_forget()
+        
+        # Refresh preview if folder is selected
         if self.current_folder and os.path.exists(self.current_folder):
             # Trigger refresh by setting folder again
             folder = self.current_folder
             self.folder_var.set("")  # Clear to trigger refresh
             self.folder_var.set(folder)
     
+    def start_quick_scan(self):
+        """Start quick scan in background thread"""
+        if not self.current_folder or not os.path.exists(self.current_folder):
+            messagebox.showwarning("No Folder", "Please select a folder first.")
+            return
+        
+        # Run quick scan in background
+        import threading
+        thread = threading.Thread(target=self.quick_scan_folder, args=(self.current_folder,), daemon=True)
+        thread.start()
+
     def on_folder_changed(self, *args):
         """Handle folder path changes với immediate UI feedback"""
         folder_path = self.folder_var.get()
@@ -1160,6 +1209,114 @@ Right-click Context menu with file operations
         # Just show info, don't block processing
         messagebox.showinfo(title, detailed_msg)
     
+    def quick_scan_folder(self, folder_path: str):
+        """Quick scan to find only files that need renaming - no UI loading"""
+        try:
+            start_time = time.time()
+            
+            # Get scan settings
+            include_subfolders = self.include_subfolders_var.get()
+            max_depth = self.max_depth_var.get() if include_subfolders else 1
+            
+            # Quick scan without UI updates
+            files_need_renaming = []
+            total_files_scanned = 0
+            
+            # Show progress dialog
+            progress = ProgressDialog(self.root)
+            progress.show("Quick Scan - Tìm files cần đổi tên", 0)
+            
+            def scan_directory(current_path: str, current_depth: int, relative_path: str = ""):
+                nonlocal total_files_scanned, files_need_renaming
+                
+                if current_depth > max_depth or progress.is_cancelled():
+                    return
+                    
+                try:
+                    items = os.listdir(current_path)
+                    for item in items:
+                        if progress.is_cancelled():
+                            break
+                            
+                        item_path = os.path.join(current_path, item)
+                        
+                        try:
+                            if os.path.isfile(item_path):
+                                total_files_scanned += 1
+                                
+                                # Quick normalization check
+                                normalized = self.normalizer.normalize_filename(item)
+                                needs_rename = (item != normalized)
+                                
+                                if needs_rename:
+                                    size = os.path.getsize(item_path)
+                                    files_need_renaming.append({
+                                        'original_name': item,
+                                        'suggested_name': normalized,
+                                        'relative_path': relative_path,
+                                        'full_path': item_path,
+                                        'size': size
+                                    })
+                                
+                                # Update progress every 50 files
+                                if total_files_scanned % 50 == 0:
+                                    status = f"Scanned {total_files_scanned} files, found {len(files_need_renaming)} need renaming"
+                                    progress.update_progress(0, status)  # Indeterminate progress
+                                    
+                            elif os.path.isdir(item_path) and current_depth < max_depth:
+                                sub_relative_path = os.path.join(relative_path, item) if relative_path else item
+                                scan_directory(item_path, current_depth + 1, sub_relative_path)
+                                
+                        except (PermissionError, OSError):
+                            continue
+                            
+                except (PermissionError, OSError):
+                    pass
+            
+            # Execute scan
+            scan_directory(folder_path, 1)
+            
+            progress.close()
+            
+            # Show results
+            scan_time = time.time() - start_time
+            self.show_scan_results(files_need_renaming, total_files_scanned, scan_time)
+            
+            # Store scan results for export
+            self.scan_results = files_need_renaming
+            
+        except Exception as e:
+            if 'progress' in locals():
+                progress.close()
+            messagebox.showerror("Quick Scan Error", f"Error during scan: {str(e)}")
+    
+    def show_scan_results(self, files_need_renaming: list, total_scanned: int, scan_time: float):
+        """Display scan results summary"""
+        need_rename_count = len(files_need_renaming)
+        no_change_count = total_scanned - need_rename_count
+        
+        result_msg = f"""Quick Scan Complete!
+        
+Scan Time: {scan_time:.1f} seconds
+Total Files Scanned: {total_scanned:,}
+
+Files Need Renaming: {need_rename_count:,}
+Files Already OK: {no_change_count:,}
+
+Next Steps:
+• Click "Export Files Need Renaming" to save list
+• Review and edit the Excel file if needed  
+• Import the list back to rename files"""
+        
+        messagebox.showinfo("Scan Results", result_msg)
+        
+        # Update status
+        self.status_var.set(f"Scan complete: {need_rename_count:,} of {total_scanned:,} files need renaming")
+        
+        # Enable export button
+        if hasattr(self, 'export_scan_button'):
+            self.export_scan_button.config(state="normal" if need_rename_count > 0 else "disabled")
+
     def load_files_from_folder(self, folder_path: str, max_files: int = 5000):
         """Load and process files from folder với performance optimization"""
         try:
@@ -1914,21 +2071,38 @@ Right-click Context menu with file operations
             try:
                 # Get the original filename and new filename
                 old_filename = item['filename']
-                new_filename = item.get('custom_name') or self.normalizer.normalize_filename(old_filename)
+                
+                # Priority: custom_name > suggested_name (from import) > normalize
+                if item.get('custom_name'):
+                    new_filename = item['custom_name']
+                elif item.get('suggested_name'):
+                    new_filename = item['suggested_name']
+                else:
+                    new_filename = self.normalizer.normalize_filename(old_filename)
                 
                 # Skip if names are the same (no change needed)
                 if old_filename == new_filename:
                     continue
                 
-                # Handle files with relative paths (in subdirectories)
-                if 'relative_path' in item and item['relative_path']:
-                    # File in subdirectory
+                # Handle path building - prioritize full_path for imported files
+                if item.get('full_path') and os.path.exists(item['full_path']):
+                    # For imported files, use the validated full path
+                    old_path = item['full_path']
+                    new_path = os.path.join(os.path.dirname(old_path), new_filename)
+                elif 'relative_path' in item and item['relative_path']:
+                    # File in subdirectory (traditional workflow)
                     old_path = os.path.join(self.current_folder, item['relative_path'], old_filename)
                     new_path = os.path.join(self.current_folder, item['relative_path'], new_filename)
                 else:
-                    # File in root directory
+                    # File in root directory (traditional workflow)
                     old_path = os.path.join(self.current_folder, old_filename)
                     new_path = os.path.join(self.current_folder, new_filename)
+                
+                # Debug info
+                print(f"Rename attempt: {old_filename} -> {new_filename}")
+                print(f"  Old path: {old_path}")  
+                print(f"  New path: {new_path}")
+                print(f"  Old exists: {os.path.exists(old_path)}")
                 
                 # Check if source file exists
                 if not os.path.exists(old_path):
@@ -2104,6 +2278,212 @@ Right-click Context menu with file operations
         thread = threading.Thread(target=undo_operation, daemon=True)
         thread.start()
     
+    def export_scan_results(self):
+        """Export only files that need renaming from quick scan"""
+        if not hasattr(self, 'scan_results') or not self.scan_results:
+            messagebox.showinfo("No Scan Data", "Please run Quick Scan first to find files that need renaming.")
+            return
+        
+        try:
+            # Generate default filename
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_filename = f"files_need_renaming_{timestamp}"
+            
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx"), ("CSV files", "*.csv"), ("All files", "*.*")],
+                title="Export Files Need Renaming",
+                initialfile=default_filename
+            )
+            
+            if not file_path:
+                return
+            
+            # Prepare data for export
+            export_data = []
+            for item in self.scan_results:
+                try:
+                    # Format file size
+                    size = item['size']
+                    if size < 1024:
+                        size_str = f"{size} B"
+                    elif size < 1024 * 1024:
+                        size_str = f"{size / 1024:.1f} KB"
+                    else:
+                        size_str = f"{size / (1024 * 1024):.1f} MB"
+                    
+                    # Ensure consistent path formatting
+                    original_path = os.path.join(item['relative_path'], item['original_name']) if item['relative_path'] else item['original_name']
+                    full_path = os.path.abspath(item['full_path'])  # Normalize path
+                    
+                    export_data.append({
+                        'Original Path': original_path,
+                        'Current Name': item['original_name'],
+                        'Suggested Name': item['suggested_name'],
+                        'Relative Path': item['relative_path'] or '',  # Ensure empty string not None
+                        'Full Path': full_path,
+                        'Size': size_str,
+                        'Action': 'RENAME'  # User can change to SKIP
+                    })
+                except Exception as item_error:
+                    print(f"Error processing scan item: {item_error}")
+                    continue
+            
+            # Export based on file extension
+            if file_path.endswith('.xlsx'):
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame(export_data)
+                    df.to_excel(file_path, index=False)
+                except ImportError:
+                    file_path = file_path.replace('.xlsx', '.csv')
+                    self._export_to_csv(export_data, file_path)
+            else:
+                self._export_to_csv(export_data, file_path)
+            
+            messagebox.showinfo("Export Complete", 
+                              f"Exported {len(export_data)} files need renaming to:\n{os.path.basename(file_path)}\n\n" +
+                              "Next steps:\n" +
+                              "1. Review and edit the file\n" +
+                              "2. Change 'Action' to 'SKIP' for files you don't want to rename\n" +
+                              "3. Import the file back using 'Import Rename List'")
+            
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Error exporting scan results: {str(e)}")
+    
+    def import_rename_list(self):
+        """Import rename list from Excel/CSV for targeted renaming"""
+        try:
+            file_path = filedialog.askopenfilename(
+                filetypes=[("Excel files", "*.xlsx"), ("CSV files", "*.csv"), ("All files", "*.*")],
+                title="Import Rename List"
+            )
+            
+            if not file_path:
+                return
+            
+            # Read the file
+            import_data = []
+            try:
+                if file_path.endswith('.xlsx'):
+                    import pandas as pd
+                    df = pd.read_excel(file_path)
+                else:
+                    import pandas as pd
+                    df = pd.read_csv(file_path, encoding='utf-8-sig')
+                
+                # Convert to list of dicts
+                import_data = df.to_dict('records')
+                
+            except ImportError:
+                # Fallback to CSV without pandas
+                if file_path.endswith('.xlsx'):
+                    messagebox.showerror("Import Error", "Cannot read Excel files without pandas library. Please use CSV format.")
+                    return
+                
+                import csv
+                with open(file_path, 'r', encoding='utf-8-sig') as f:
+                    reader = csv.DictReader(f)
+                    import_data = list(reader)
+            
+            # Validate and process import data
+            valid_items = []
+            for row in import_data:
+                try:
+                    # Check required columns
+                    if not all(col in row for col in ['Current Name', 'Suggested Name', 'Full Path', 'Action']):
+                        continue
+                    
+                    # Skip items marked as SKIP
+                    if str(row.get('Action', '')).upper() == 'SKIP':
+                        continue
+                    
+                    # Validate file exists - normalize path first
+                    full_path = os.path.abspath(row['Full Path'].strip())
+                    if not os.path.exists(full_path):
+                        print(f"File not found: {full_path}")
+                        # Try alternative path construction if full path fails
+                        if self.current_folder and row.get('Relative Path'):
+                            alt_path = os.path.join(self.current_folder, row['Relative Path'], row['Current Name'])
+                            alt_path = os.path.abspath(alt_path)
+                            if os.path.exists(alt_path):
+                                full_path = alt_path
+                                print(f"Found alternative path: {alt_path}")
+                            else:
+                                continue
+                        elif self.current_folder:
+                            alt_path = os.path.join(self.current_folder, row['Current Name'])
+                            alt_path = os.path.abspath(alt_path)
+                            if os.path.exists(alt_path):
+                                full_path = alt_path
+                                print(f"Found alternative path: {alt_path}")
+                            else:
+                                continue
+                        else:
+                            continue
+                    
+                    # Add to valid items
+                    valid_items.append({
+                        'filename': row['Current Name'],
+                        'suggested_name': row['Suggested Name'],
+                        'full_path': full_path,
+                        'relative_path': row.get('Relative Path', ''),
+                        'current': row.get('Original Path', row['Current Name']),
+                        'new': row['Suggested Name'],
+                        'selected': True,
+                        'changed': row['Current Name'] != row['Suggested Name'],
+                        'status': 'Từ import list',
+                        'size': self._get_file_size_str(full_path),
+                        'is_manual': False,
+                        'custom_name': None
+                    })
+                    
+                    print(f"Added to import: {row['Current Name']} -> {row['Suggested Name']} at {full_path}")
+                    
+                except Exception as row_error:
+                    print(f"Error processing row: {row_error}")
+                    continue
+            
+            if not valid_items:
+                messagebox.showwarning("No Valid Data", 
+                                     "No valid rename operations found in the import file.\n\n" +
+                                     "Please check:\n" +
+                                     "• File has required columns\n" + 
+                                     "• Files still exist on disk\n" +
+                                     "• Action is set to RENAME (not SKIP)")
+                return
+            
+            # Load into preview
+            self.preview_data = valid_items
+            self.update_preview_display(valid_items)
+            
+            # Update status
+            self.status_var.set(f"Imported {len(valid_items)} files from rename list")
+            
+            # Enable rename button
+            self.rename_button.config(state="normal")
+            
+            messagebox.showinfo("Import Complete", 
+                              f"Successfully imported {len(valid_items)} files for renaming.\n\n" +
+                              "Review the list and click 'Rename Selected Files' to proceed.")
+            
+        except Exception as e:
+            messagebox.showerror("Import Error", f"Error importing rename list: {str(e)}")
+    
+    def _get_file_size_str(self, file_path: str) -> str:
+        """Get formatted file size string"""
+        try:
+            size = os.path.getsize(file_path)
+            if size < 1024:
+                return f"{size} B"
+            elif size < 1024 * 1024:
+                return f"{size / 1024:.1f} KB"
+            else:
+                return f"{size / (1024 * 1024):.1f} MB"
+        except:
+            return "0 B"
+
     def export_preview(self):
         """Export preview list to Excel/CSV với more options"""
         if not self.preview_data:
